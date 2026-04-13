@@ -1,0 +1,2358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#130E07">
+  <title>GRANO — Tostadora Especialidad</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #130E07; overscroll-behavior: none; }
+    #root { height: 100dvh; display: flex; flex-direction: column; }
+    input, textarea, select, button { font-family: Georgia, serif; }
+  </style>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+const STORAGE_KEY = "grano_v5";
+const IVA = { general:21, reducido:10, superreducido:4 };
+const IVA_LABELS = { general:"IVA 21%", reducido:"IVA 10%", superreducido:"IVA 4%" };
+const MONTHS = ["Oct","Nov","Dic","Ene","Feb","Mar","Abr"];
+const S_VENTAS = [820,1050,1380,1620,1480,1740,1920];
+const S_GASTOS = [1200,1100,1050,980,1020,960,940];
+const RETENTION = 5;
+
+const INIT_BIZ = {
+  name:"GRANO Tostadora Especialidad", legalName:"", nif:"",
+  address:"Gran Vía de San Marcos", city:"Leon", cp:"24001",
+  phone:"", email:"", web:"",
+  ticketFooter:"¡Gracias por tu visita! Cafe de especialidad tostado en León.",
+  facturaCounter:1,
+};
+const INIT_STATE = {
+  inventory:[], transactions:[], assets:[], loans:[],
+  tickets:[], ticketCounter:1, business:INIT_BIZ,
+  facturas:[], transfers:[], roasts:[],
+  caja:{ abierta:false, apertura:null, fondoInicial:0 },
+  clients:[], coupons:[],
+};
+
+
+const ALMACEN = {
+  tostador:{ label:"Tostador",  icon:"🔥", color:"#C9A96E" },
+  tienda:  { label:"Tienda",    icon:"🏪", color:"#7A9E7E" },
+  takeaway:{ label:"Take Away", icon:"☕", color:"#8A9EAE" },
+};
+const CAT_LABELS = {
+  cafe_verde:"Café Verde", cafe_tostado:"Café Tostado",
+  lacteos:"Lácteos", envases:"Envases", consumibles:"Consumibles",
+  accesorios:"Accesorios", otros:"Otros",
+};
+const SYS = "Eres GRANO, asistente de gestión de una micro-tostadora en León. Responde en espanol. Incluye acciones AL FINAL.\nACCIONES:\n1. <GRANO_ACTION>{\"type\":\"UPSERT_INVENTORY\",\"items\":[{\"id\":\"id\",\"name\":\"Nombre\",\"quantity\":10,\"unit\":\"kg\",\"unitCost\":15,\"category\":\"cafe_verde\",\"almacen\":\"tostador\",\"minStock\":2}]}</GRANO_ACTION>\n2. <GRANO_ACTION>{\"type\":\"ADD_TRANSACTION\",\"transaction\":{\"id\":\"t1\",\"date\":\"2026-04-10\",\"type\":\"gasto\",\"category\":\"compra_insumos\",\"amount\":100,\"description\":\"Desc\"}}</GRANO_ACTION>\n3. <GRANO_ACTION>{\"type\":\"TRANSFER_STOCK\",\"transfer\":{\"from\":\"tostador\",\"to\":\"tienda\",\"itemId\":\"id\",\"qty\":5,\"reason\":\"motivo\"}}</GRANO_ACTION>\n4. <GRANO_ACTION>{\"type\":\"REGISTER_ROAST\",\"roast\":{\"verdeId\":\"id\",\"qtyVerde\":10,\"qtyTostado\":8.5,\"notes\":\"\"}}</GRANO_ACTION>";
+const TPV_SYS = "TPV GRANO. Interpreta ventas. IVA: reducido(10%)=bebidas; superreducido(4%)=café envasado; general(21%)=accesorios. Solo JSON:\n<TPV_SALE>{\"items\":[{\"qty\":1,\"desc\":\"Desc\",\"unitPrice\":1.50,\"vatType\":\"reducido\"}],\"paymentMethod\":\"efectivo\",\"notes\":\"\"}</TPV_SALE>";
+
+const fmt = (n) => new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR"}).format(n||0);
+const fmtD = (iso) => new Date(iso+"T12:00:00").toLocaleDateString("es-ES",{day:"2-digit",month:"short",year:"numeric"});
+const fmtDT = (iso) => new Date(iso).toLocaleString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+const gid = (p) => (p||"id")+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,5);
+
+function calcTotals(items) {
+  const byVat = {}; let tBase=0, tVat=0, total=0;
+  for (const item of items) {
+    const pct=IVA[item.vatType]||10, lt=item.qty*item.unitPrice;
+    const base=lt/(1+pct/100), vat=lt-base;
+    if (!byVat[item.vatType]) byVat[item.vatType]={base:0,vat:0,pct};
+    byVat[item.vatType].base+=base; byVat[item.vatType].vat+=vat;
+    tBase+=base; tVat+=vat; total+=lt;
+  }
+  return {byVat, totalBase:tBase, totalVat:tVat, total};
+}
+function calcLoan(l) {
+  const r=l.interestRate/100/12, n=l.termMonths;
+  const monthly=r>0?l.principal*r*Math.pow(1+r,n)/(Math.pow(1+r,n)-1):l.principal/n;
+  const k=Math.min(n,Math.max(0,Math.floor((Date.now()-new Date(l.startDate).getTime())/(1000*60*60*24*30.44))));
+  const rem=r>0?l.principal*(Math.pow(1+r,n)-Math.pow(1+r,k))/(Math.pow(1+r,n)-1):Math.max(0,l.principal-(l.principal/n)*k);
+  return {monthly, remaining:Math.max(0,rem), monthsLeft:n-k};
+}
+function calcAsset(a) {
+  const age=(Date.now()-new Date(a.purchaseDate).getTime())/(1000*60*60*24*365.25);
+  return {bookValue:a.purchasePrice*Math.max(0,1-age/a.depreciationYears), annualDep:a.purchasePrice/a.depreciationYears};
+}
+function applyAction(state, action) {
+  if (!action || !action.type) return state;
+  const s = {
+    ...state, inventory:[...state.inventory], transactions:[...state.transactions],
+    assets:[...state.assets], loans:[...state.loans], tickets:[...state.tickets],
+    transfers:[...(state.transfers||[])], roasts:[...(state.roasts||[])],
+  };
+  if (action.type==="UPSERT_INVENTORY" && action.items) {
+    for (const item of action.items) {
+      const idx=s.inventory.findIndex(x=>x.id===item.id);
+      if (idx>=0) s.inventory[idx]={...s.inventory[idx],...item};
+      else s.inventory.push({almacen:"tostador",...item,id:item.id||gid("inv")});
+    }
+  }
+  if (action.type==="ADD_TRANSACTION" && action.transaction) {
+    s.transactions.push({...action.transaction, id:action.transaction.id||gid("txn")});
+  }
+  if (action.type==="UPSERT_ASSET" && action.asset) {
+    const idx=s.assets.findIndex(x=>x.id===action.asset.id);
+    if (idx>=0) s.assets[idx]={...s.assets[idx],...action.asset};
+    else s.assets.push({...action.asset, id:action.asset.id||gid("asset")});
+  }
+  if (action.type==="UPSERT_LOAN" && action.loan) {
+    const idx=s.loans.findIndex(x=>x.id===action.loan.id);
+    if (idx>=0) s.loans[idx]={...s.loans[idx],...action.loan};
+    else s.loans.push({...action.loan, id:action.loan.id||gid("loan"), payments:[]});
+  }
+  if (action.type==="ADJUST_STOCK" && action.adjustments) {
+    for (const adj of action.adjustments) {
+      const idx=s.inventory.findIndex(x=>x.id===adj.id);
+      if (idx>=0) s.inventory[idx]={...s.inventory[idx], quantity:Math.max(0,(s.inventory[idx].quantity||0)+adj.delta)};
+    }
+  }
+  if (action.type==="TRANSFER_STOCK" && action.transfer) {
+    const {from,to,itemId,qty,reason}=action.transfer;
+    const si=s.inventory.findIndex(x=>x.id===itemId&&x.almacen===from);
+    if (si>=0 && s.inventory[si].quantity>=qty) {
+      const item=s.inventory[si];
+      s.inventory[si]={...item, quantity:item.quantity-qty};
+      const di=s.inventory.findIndex(x=>x.name===item.name&&x.almacen===to);
+      if (di>=0) s.inventory[di]={...s.inventory[di], quantity:(s.inventory[di].quantity||0)+qty};
+      else s.inventory.push({...item, id:gid("inv"), almacen:to, quantity:qty});
+      s.transfers.push({id:gid("tr"), date:new Date().toISOString(), from, to, itemId, itemName:item.name, qty, unit:item.unit, reason:reason||""});
+    }
+  }
+  if (action.type==="REGISTER_ROAST" && action.roast) {
+    const {verdeId,qtyVerde,qtyTostado,notes}=action.roast;
+    const vi=s.inventory.findIndex(x=>x.id===verdeId);
+    if (vi>=0 && s.inventory[vi].quantity>=qtyVerde) {
+      const verde=s.inventory[vi];
+      s.inventory[vi]={...verde, quantity:verde.quantity-qtyVerde};
+      const tId="tostado_"+verdeId;
+      const ti=s.inventory.findIndex(x=>x.id===tId);
+      const cost=parseFloat(((verde.unitCost*qtyVerde)/qtyTostado).toFixed(2));
+      if (ti>=0) s.inventory[ti]={...s.inventory[ti], quantity:(s.inventory[ti].quantity||0)+qtyTostado};
+      else s.inventory.push({id:tId, name:verde.name.replace(/verde/i,"tostado"), quantity:qtyTostado, unit:verde.unit, unitCost:cost, category:"cafe_tostado", almacen:"tostador", minStock:verde.minStock||1});
+      s.roasts.push({id:gid("r"), date:new Date().toISOString(), verdeId, verdeName:verde.name, qtyVerde, qtyTostado, merma:parseFloat(((qtyVerde-qtyTostado)/qtyVerde*100).toFixed(1)), notes:notes||""});
+    }
+  }
+  return s;
+}
+function parseAction(text) {
+  const m=text.match(/<GRANO_ACTION>([\s\S]*?)<\/GRANO_ACTION>/);
+  const clean=text.replace(/<GRANO_ACTION>[\s\S]*?<\/GRANO_ACTION>/,"").trim();
+  let action=null;
+  if (m) { try { action=JSON.parse(m[1].trim()); } catch(e) {} }
+  return {clean, action};
+}
+function parseSale(text) {
+  const m=text.match(/<TPV_SALE>([\s\S]*?)<\/TPV_SALE>/);
+  if (m) { try { return JSON.parse(m[1].trim()); } catch(e) {} }
+  return null;
+}
+async function callAPI(system, messages) {
+  const res=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system,messages}),
+  });
+  const data=await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content?.[0]?.text||"";
+}
+
+const TIERS = [
+  {id:"nuevo",   label:"Nuevo",   color:"#8A9EAE", minSpend:0,   maxSpend:25,  discount:0},
+  {id:"regular", label:"Regular", color:"#C9A96E", minSpend:25,  maxSpend:100, discount:5},
+  {id:"vip",     label:"VIP",     color:"#7A9E7E", minSpend:100, maxSpend:9e9, discount:10},
+];
+function getTier(spent, override) {
+  if (override) return TIERS.find(function(t){return t.id===override;})||TIERS[0];
+  return TIERS.slice().reverse().find(function(t){return spent>=t.minSpend;})||TIERS[0];
+}
+
+function KPI({ label, value, sub, color, alert }) {
+  const c=color||"#C9A96E";
+  return (
+    <div style={{padding:"8px 10px",background:alert?"rgba(255,100,60,0.08)":"rgba(255,255,255,0.03)",borderRadius:7,border:"1px solid "+(alert?"rgba(255,100,60,0.25)":"rgba(255,255,255,0.07)")}}>
+      <div style={{fontSize:8,letterSpacing:2,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>{label}</div>
+      <div style={{fontSize:14,fontWeight:"bold",color:alert?"#FF8060":c}}>{value}</div>
+      {sub && <div style={{fontSize:9,color:"#5A4530",marginTop:1}}>{sub}</div>}
+    </div>
+  );
+}
+
+function Bar({ pct, color, height }) {
+  return (
+    <div style={{background:"rgba(255,255,255,0.06)",borderRadius:3,height:height||5,overflow:"hidden"}}>
+      <div style={{height:"100%",width:Math.min(100,Math.max(0,pct))+"%",background:color||"#C9A96E",borderRadius:3,transition:"width 0.5s"}} />
+    </div>
+  );
+}
+
+function TicketPreview({ ticket, business }) {
+  const biz=business||INIT_BIZ;
+  const totals=ticket.totals||calcTotals(ticket.items||[]);
+  const vatTypes=[...new Set((ticket.items||[]).map(i=>i.vatType))];
+  const vatNote=vatTypes.map(vt=>"*IVA "+IVA[vt]+"% incl.").join("  ");
+  const PM={efectivo:"EFECTIVO",tarjeta:"TARJETA",bizum:"BIZUM",otro:"OTRO"};
+  const s={fontFamily:"'Courier New',Courier,monospace",fontSize:11,color:"#000",background:"#fff",width:"100%",maxWidth:280,margin:"0 auto",padding:"10px 8px",boxSizing:"border-box",lineHeight:1.45};
+  return (
+    <div id="ticket-print" style={s}>
+      <div style={{textAlign:"center",marginBottom:6}}>
+        <div style={{fontWeight:"bold",fontSize:13,letterSpacing:1}}>{biz.name||"GRANO"}</div>
+        {biz.nif && <div style={{fontSize:10}}>NIF: {biz.nif}</div>}
+        <div style={{fontSize:10}}>{biz.address}{biz.city?" - "+biz.city:""}</div>
+        {biz.phone && <div style={{fontSize:10}}>{biz.phone}</div>}
+      </div>
+      <div style={{borderTop:"1px dashed #000",margin:"5px 0"}} />
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}>
+        <span>No {String(ticket.number||0).padStart(6,"0")}</span>
+        <span>{fmtDT(ticket.date)}</span>
+      </div>
+      <div style={{borderTop:"1px dashed #000",margin:"5px 0"}} />
+      <div style={{marginBottom:4}}>
+        {(ticket.items||[]).map(function(item,idx) {
+          return (
+            <div key={idx} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:1}}>
+              <span style={{flex:1,paddingRight:6}}>{item.qty>1?item.qty+"x ":""}{item.desc}</span>
+              <span style={{whiteSpace:"nowrap"}}>{(item.qty*item.unitPrice).toFixed(2)} E</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{borderTop:"1px solid #000",margin:"5px 0"}} />
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:"bold",margin:"4px 0"}}>
+        <span>TOTAL</span>
+        <span>{totals.total.toFixed(2)} E</span>
+      </div>
+      <div style={{fontSize:9,color:"#555",marginBottom:3}}>{vatNote}</div>
+      <div style={{fontSize:10,marginBottom:2}}>{PM[ticket.paymentMethod]||"EFECTIVO"}</div>
+      <div style={{borderTop:"1px dashed #000",margin:"5px 0"}} />
+      <div style={{textAlign:"center",fontSize:9,color:"#444",lineHeight:1.4}}>
+        <div>{biz.ticketFooter||"Gracias por su visita!"}</div>
+        {biz.web && <div style={{marginTop:1}}>{biz.web}</div>}
+        <div style={{marginTop:3,color:"#999"}}>Conserve como justificante - RDLeg 1/2007</div>
+      </div>
+    </div>
+  );
+}
+
+function MsgBubble({ text }) {
+  if (!text) return null;
+  const lines=text.split("\n");
+  return (
+    <div>
+      {lines.map(function(l,i) {
+        if (l.startsWith("## ")) return <div key={i} style={{color:"#E8DCC8",fontWeight:"bold",margin:"8px 0 3px",fontSize:13}}>{l.slice(3)}</div>;
+        if (l.startsWith("### ")) return <div key={i} style={{color:"#C9A96E",fontWeight:"bold",margin:"6px 0 2px",fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>{l.slice(4)}</div>;
+        if (l.match(/^[-*] /)) return <div key={i} style={{display:"flex",gap:5,margin:"2px 0",fontSize:12,color:"#C4B49A"}}><span style={{color:"#C9A96E",flexShrink:0}}>›</span><span>{l.slice(2)}</span></div>;
+        if (l.startsWith("---")) return <hr key={i} style={{border:"none",borderTop:"1px solid rgba(201,169,110,0.2)",margin:"8px 0"}} />;
+        if (l.trim()==="") return <div key={i} style={{height:5}} />;
+        const parts=l.split(/(\*\*[^*]+\*\*)/g);
+        return (
+          <p key={i} style={{margin:"2px 0",fontSize:12,color:"#C4B49A",lineHeight:1.55}}>
+            {parts.map(function(p,j) {
+              if (p.startsWith("**")&&p.endsWith("**")) return <strong key={j} style={{color:"#C9A96E"}}>{p.slice(2,-2)}</strong>;
+              return p;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function GranoApp() {
+  const [state, setState] = useState(INIT_STATE);
+  const [msgs, setMsgs] = useState([{role:"assistant",text:"Hola, soy GRANO. TPV, Caja, Historial, Dashboard, Facturas, Stock 3 almacenes, P&L. ¿Por dónde empezamos?"}]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState("tpv");
+  const [finTab, setFinTab] = useState("pl");
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const [tpvInput, setTpvInput] = useState("");
+  const [tpvLoading, setTpvLoading] = useState(false);
+  const [tpvMode, setTpvMode] = useState("input");
+  const [pendingSale, setPendingSale] = useState(null);
+  const [lastTicket, setLastTicket] = useState(null);
+  const [imgUrl, setImgUrl] = useState(null);
+  const [clipStatus, setClipStatus] = useState("idle");
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fSize, setFSize] = useState("normal");
+  const [fAddons, setFAddons] = useState([]);
+  const [fQty, setFQty] = useState(1);
+  const [fCart, setFCart] = useState([]);
+  const [fCookies, setFCookies] = useState(0);
+  const [fBolsa, setFBolsa] = useState(false);
+  const [fPay, setFPay] = useState("efectivo");
+  const [fondoInput, setFondoInput] = useState("200");
+  const [factTab, setFactTab] = useState("nueva");
+  const [factForm, setFactForm] = useState({
+    tipo:"simplificada",clienteNombre:"",clienteNif:"",clienteDireccion:"",clienteEmail:"",
+    fecha:new Date().toISOString().slice(0,10),
+    items:[{desc:"",qty:1,unitPrice:0,vatType:"reducido"}],
+    notas:"",paymentMethod:"transferencia",
+  });
+  const [dashPeriod, setDashPeriod] = useState("semana");
+  const [histFilter, setHistFilter] = useState("mes");
+  const [histSearch, setHistSearch] = useState("");
+  const [histSel, setHistSel] = useState(null);
+  const [histView, setHistView] = useState("list");
+  const [stockAlm, setStockAlm] = useState("tostador");
+  const [stockModal, setStockModal] = useState(null);
+  const [stockForm, setStockForm] = useState({});
+  const [informePeriod, setInformePeriod] = useState("mes");
+  const [informeTab, setInformeTab] = useState("snapshot");
+  // CRM
+  const [crmView, setCrmView] = useState("list");
+  const [crmSel, setCrmSel] = useState(null);
+  const [crmForm, setCrmForm] = useState({});
+  const [crmSearch, setCrmSearch] = useState("");
+  const [couponView, setCouponView] = useState("list");
+  const [couponForm, setCouponForm] = useState({});
+  const [crmTab, setCrmTab] = useState("clientes");
+  // TPV discount state
+  const [tpvClient, setTpvClient] = useState(null);
+  const [tpvCoupon, setTpvCoupon] = useState(null);
+  const [tpvCouponInput, setTpvCouponInput] = useState("");
+  const [tpvClientSearch, setTpvClientSearch] = useState("");
+  const endRef = useRef(null);
+  const importRef = useRef(null);
+
+  useEffect(function() {
+    (async function() {
+      try { const raw=localStorage.getItem(STORAGE_KEY); if(raw) setState(JSON.parse(raw)); }
+      catch(e) {}
+    })();
+  }, []);
+
+  const save = useCallback(function(s) {
+    setSaveStatus("saving");
+    try { localStorage.setItem(STORAGE_KEY,JSON.stringify(s)); setSaveStatus("saved"); setTimeout(function(){setSaveStatus("idle");},2000); }
+    catch(e) { setSaveStatus("error"); }
+  }, []);
+
+  useEffect(function() { if(endRef.current) endRef.current.scrollIntoView({behavior:"smooth"}); }, [msgs]);
+
+  const exportData = function() {
+    const blob=new Blob([JSON.stringify({...state,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download="grano_backup_"+new Date().toISOString().slice(0,10)+".json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+  const importData = function(e) {
+    const file=e.target.files&&e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=async function(ev) {
+      try {
+        const parsed=JSON.parse(ev.target.result);
+        const merged={...INIT_STATE,...parsed}; delete merged.exportedAt;
+        setState(merged); await save(merged);
+        setMsgs(function(prev){return [...prev,{role:"assistant",text:"Datos restaurados: "+merged.inventory.length+" articulos, "+merged.tickets.length+" tickets."}];});
+      } catch(e2) { setMsgs(function(prev){return [...prev,{role:"assistant",text:"Archivo no valido."}];}); }
+    };
+    reader.readAsText(file); e.target.value="";
+  };
+
+  const generateImg = useCallback(function() {
+    if (!lastTicket) return;
+    const el=document.getElementById("ticket-print"); if(!el) return;
+    const rect=el.getBoundingClientRect();
+    const W=Math.ceil(rect.width)||280, H=Math.ceil(rect.height)||500, sc=3;
+    const svgStr="<svg xmlns=\"http://www.w3.org/2000/svg\" width=\""+(W*sc)+"\" height=\""+(H*sc)+"\"><foreignObject x=\"0\" y=\"0\" width=\""+W+"\" height=\""+H+"\" transform=\"scale("+sc+")\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"width:"+W+"px;background:#fff;overflow:hidden;\">"+el.outerHTML+"</div></foreignObject></svg>";
+    const svgUrl="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgStr);
+    const img=new Image();
+    img.onload=function() {
+      const c=document.createElement("canvas"); c.width=W*sc; c.height=H*sc;
+      const ctx=c.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,c.width,c.height); ctx.drawImage(img,0,0);
+      setImgUrl(c.toDataURL("image/png"));
+    };
+    img.src=svgUrl;
+  }, [lastTicket]);
+
+  const copyClip = useCallback(async function() {
+    if (!imgUrl) { generateImg(); return; }
+    try { const res=await fetch(imgUrl); const blob=await res.blob(); await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]); setClipStatus("ok"); }
+    catch(e) { setClipStatus("fail"); }
+    setTimeout(function(){setClipStatus("idle");},3000);
+  }, [imgUrl, generateImg]);
+
+  const abrirCaja = async function() {
+    const ns={...state,caja:{abierta:true,apertura:new Date().toISOString(),fondoInicial:parseFloat(fondoInput)||0}};
+    setState(ns); await save(ns);
+  };
+  const cerrarCaja = async function() {
+    const hoy=new Date().toISOString().slice(0,10);
+    const tkHoy=(state.tickets||[]).filter(function(t){return t.date&&t.date.slice(0,10)===hoy;});
+    const ef=tkHoy.filter(function(t){return t.paymentMethod==="efectivo";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const ta=tkHoy.filter(function(t){return t.paymentMethod==="tarjeta";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const bi=tkHoy.filter(function(t){return t.paymentMethod==="bizum";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const txn={id:gid("txn"),date:hoy,type:"ingreso",category:"venta_take_away",amount:parseFloat((ef+ta+bi).toFixed(2)),description:"Cierre de caja - "+tkHoy.length+" tickets"};
+    const ns={...state,caja:{...state.caja,abierta:false,cierre:{fecha:new Date().toISOString(),efectivo:ef,tarjeta:ta,bizum:bi,total:ef+ta+bi,tickets:tkHoy.length}},transactions:[...state.transactions,txn]};
+    setState(ns); await save(ns);
+    // Auto-export backup on close
+    const blob=new Blob([JSON.stringify({...ns,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download="grano_cierre_"+hoy+".json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
+  const emitirFactura = async function() {
+    const validItems=factForm.items.filter(function(i){return i.desc&&i.unitPrice>0;});
+    if (validItems.length===0) return;
+    const totals=calcTotals(validItems);
+    const num=state.business&&state.business.facturaCounter||1;
+    const factura={id:gid("fact"),number:num,date:factForm.fecha,tipo:factForm.tipo,cliente:{nombre:factForm.clienteNombre,nif:factForm.clienteNif,direccion:factForm.clienteDireccion,email:factForm.clienteEmail},items:validItems,totals,paymentMethod:factForm.paymentMethod,notas:factForm.notas};
+    const txn={id:gid("txn"),date:factForm.fecha,type:"ingreso",category:"venta_tienda",amount:parseFloat(totals.total.toFixed(2)),description:"Factura #"+String(num).padStart(6,"0")};
+    const ns={...state,facturas:[...(state.facturas||[]),factura],transactions:[...state.transactions,txn],business:{...state.business,facturaCounter:num+1}};
+    setState(ns); await save(ns);
+    setFactTab("lista");
+    setFactForm({tipo:"simplificada",clienteNombre:"",clienteNif:"",clienteDireccion:"",clienteEmail:"",fecha:new Date().toISOString().slice(0,10),items:[{desc:"",qty:1,unitPrice:0,vatType:"reducido"}],notas:"",paymentMethod:"transferencia"});
+  };
+
+  // Productos con tallas (normal/doble)
+  const PRODUCTS=[
+    {id:"casa",  name:"Cafe de la casa",       emoji:"☕", prices:{normal:1.20, doble:2.00}},
+    {id:"esp",   name:"Espresso especialidad",  emoji:"✨", prices:{normal:1.50, doble:2.50}},
+  ];
+  // Productos precio fijo (sin talla)
+  const PRODUCTS_FIXED=[
+    {id:"ame",   name:"Americano",              emoji:"☕", price:1.60, vatType:"reducido"},
+    {id:"cap",   name:"Capucino",               emoji:"☕", price:2.00, vatType:"reducido"},
+    {id:"thai",  name:"Capu-Thai",              emoji:"🍵", price:2.50, vatType:"reducido"},
+    {id:"red",   name:"Red Espresso (Decaf)",   emoji:"🍵", price:1.60, vatType:"reducido"},
+    {id:"filt",  name:"Filtro Manual",          emoji:"☕", price:5.50, vatType:"reducido"},
+    {id:"aero",  name:"Aeropress",              emoji:"☕", price:3.50, vatType:"reducido"},
+    {id:"cookie",name:"Cookie casera",          emoji:"🍪", price:0.60, vatType:"reducido"},
+    {id:"b125",  name:"Bolsa cafe 125g",        emoji:"📦", price:6.00, vatType:"superreducido"},
+    {id:"b250",  name:"Bolsa cafe 250g",        emoji:"📦", price:10.00,vatType:"superreducido"},
+    {id:"test_c",name:"Cafe prueba",            emoji:"☕", price:0.00, vatType:"reducido"},
+    {id:"test_a",name:"Articulo prueba",        emoji:"📦", price:0.00, vatType:"reducido"},
+  ];
+  const ADDONS=[
+    {id:"leche", name:"+ Leche",  extra:0.10},
+    {id:"avena", name:"+ Avena",  extra:0.20},
+  ];
+  const BOLSA_P=0.10;
+
+  const fastTotal=useMemo(function(){
+    return fCart.reduce(function(s,i){return s+i.unitPrice*i.qty;},0)+(fBolsa?BOLSA_P:0);
+  },[fCart,fBolsa]);
+
+  const addToCart=function(p) {
+    const addT=ADDONS.filter(function(a){return fAddons.includes(a.id);}).reduce(function(s,a){return s+a.extra;},0);
+    const unitPrice=parseFloat((p.prices[fSize]+addT).toFixed(2));
+    const addonLabel=fAddons.length>0?" "+ADDONS.filter(function(a){return fAddons.includes(a.id);}).map(function(a){return a.name;}).join(" "):"";
+    const desc=p.name+(fSize==="doble"?" (Doble)":"")+addonLabel;
+    setFCart(function(prev){
+      const ex=prev.findIndex(function(i){return i.desc===desc;});
+      if (ex>=0) return prev.map(function(i,idx){return idx===ex?{...i,qty:i.qty+fQty}:i;});
+      return [...prev,{id:gid("fc"),desc,unitPrice,qty:fQty,vatType:"reducido"}];
+    });
+  };
+  const addFixedToCart=function(p) {
+    setFCart(function(prev){
+      const ex=prev.findIndex(function(i){return i.id===p.id;});
+      if (ex>=0) return prev.map(function(i,idx){return idx===ex?{...i,qty:i.qty+1}:i;});
+      return [...prev,{id:p.id,desc:p.name,unitPrice:p.price,qty:1,vatType:p.vatType}];
+    });
+  };
+  const resetCart=function(){setFCart([]);setFBolsa(false);setFSize("normal");setFAddons([]);setFQty(1);setFPay("efectivo");};
+  const checkoutFast=function(){
+    const items=[...fCart];
+    if (fBolsa) items.push({id:gid("fc"),desc:"Bolsa papel kraft",unitPrice:BOLSA_P,qty:1,vatType:"reducido"});
+    if (items.length===0) return;
+    setPendingSale({items,paymentMethod:fPay,notes:""});
+    setTpvMode("preview");
+  };
+  const confirmSale=async function(){
+    if (!pendingSale) return;
+    var rawTotals=calcTotals(pendingSale.items);
+    var discountAmt=0;
+    var discountDesc="";
+    // Apply tier discount
+    if (tpvClient) {
+      var tier=getTier(tpvClient.totalSpent||0, tpvClient.tierOverride);
+      if (tier.discount>0) {
+        discountAmt+=parseFloat((rawTotals.total*tier.discount/100).toFixed(2));
+        discountDesc+="Descuento "+tier.label+" ("+tier.discount+"%) ";
+      }
+    }
+    // Apply coupon discount
+    if (tpvCoupon&&tpvCoupon.active) {
+      var coup=tpvCoupon;
+      var base=rawTotals.total;
+      // If product-specific, calculate only on matching items
+      if (coup.applyTo==="products"&&coup.productNames&&coup.productNames.length>0) {
+        base=pendingSale.items.reduce(function(s,item){
+          var matches=coup.productNames.some(function(n){return item.desc.toLowerCase().includes(n.toLowerCase());});
+          return s+(matches?(item.qty||1)*item.unitPrice:0);
+        },0);
+      }
+      if (coup.type==="percent") {
+        discountAmt+=parseFloat((base*coup.value/100).toFixed(2));
+        discountDesc+="Cupon "+coup.code+" (-"+coup.value+"% sobre "+(coup.applyTo==="products"?(coup.productNames||[]).join(", "):"ticket")+") ";
+      } else {
+        discountAmt+=Math.min(coup.value, base);
+        discountDesc+="Cupon "+coup.code+" (-"+fmt(Math.min(coup.value,base))+") ";
+      }
+    }
+    discountAmt=Math.min(discountAmt, rawTotals.total);
+    var finalTotal=parseFloat((rawTotals.total-discountAmt).toFixed(2));
+    var totals={...rawTotals, total:finalTotal, discount:discountAmt, discountDesc:discountDesc.trim()};
+    var num=state.ticketCounter||1;
+    var ticket={id:gid("tkt"),number:num,date:new Date().toISOString(),items:pendingSale.items,paymentMethod:pendingSale.paymentMethod||"efectivo",totals,clientId:tpvClient?tpvClient.id:null,clientName:tpvClient?tpvClient.name:"",couponCode:tpvCoupon?tpvCoupon.code:""};
+    var txn={id:gid("txn"),date:new Date().toISOString().slice(0,10),type:"ingreso",category:"venta_take_away",amount:finalTotal,description:"Ticket #"+String(num).padStart(6,"0")+(tpvClient?" - "+tpvClient.name:"")};
+    var ns={...state,tickets:[...(state.tickets||[]),ticket],ticketCounter:num+1,transactions:[...state.transactions,txn]};
+    // Update client history
+    if (tpvClient) {
+      var clients=(ns.clients||[]).map(function(c){
+        if (c.id!==tpvClient.id) return c;
+        return {...c, totalSpent:(c.totalSpent||0)+finalTotal, visits:(c.visits||0)+1, lastVisit:new Date().toISOString().slice(0,10)};
+      });
+      ns={...ns,clients:clients};
+    }
+    // Update coupon usage
+    if (tpvCoupon) {
+      var coupons=(ns.coupons||[]).map(function(c){
+        if (c.id!==tpvCoupon.id) return c;
+        var newCount=(c.usedCount||0)+1;
+        return {...c, usedCount:newCount, active:c.maxUses?newCount<c.maxUses:true};
+      });
+      ns={...ns,coupons:coupons};
+    }
+    setState(ns); await save(ns);
+    setLastTicket({ticket,business:ns.business});
+    setPendingSale(null); setTpvInput(""); resetCart(); setImgUrl(null);
+    setTpvClient(null); setTpvCoupon(null); setTpvCouponInput(""); setTpvClientSearch("");
+    setTpvMode("print");
+  };
+
+  const doCompra=async function(){
+    const f=stockForm;
+    if (!f.name||!f.qty||!f.cost) {
+      alert("Rellena Nombre, Cantidad y Coste antes de registrar.");
+      return;
+    }
+    const destAlm=f.almacen||stockAlm||"tostador";
+    const item={id:gid("inv"),name:f.name,quantity:parseFloat(f.qty),unit:f.unit||"kg",unitCost:parseFloat(f.cost),category:f.category||"cafe_verde",almacen:destAlm,minStock:parseFloat(f.minStock)||1,supplier:f.supplier||""};
+    const txn={id:gid("txn"),date:new Date().toISOString().slice(0,10),type:"gasto",category:"compra_insumos",amount:parseFloat((parseFloat(f.qty)*parseFloat(f.cost)).toFixed(2)),description:"Compra: "+f.name+" ("+destAlm+")"};
+    const ns=applyAction(state,{type:"UPSERT_INVENTORY",items:[item]});
+    const ns2={...ns,transactions:[...ns.transactions,txn]};
+    setState(ns2); await save(ns2); setStockModal(null); setStockForm({});
+  };
+  const doTueste=async function(){
+    const f=stockForm; if(!f.verdeId||!f.qtyVerde||!f.qtyTostado) return;
+    const ns=applyAction(state,{type:"REGISTER_ROAST",roast:{verdeId:f.verdeId,qtyVerde:parseFloat(f.qtyVerde),qtyTostado:parseFloat(f.qtyTostado),notes:f.notes||""}});
+    setState(ns); await save(ns); setStockModal(null); setStockForm({});
+  };
+  const doTransfer=async function(){
+    const f=stockForm; if(!f.itemId||!f.qty||!f.to) return;
+    const item=state.inventory.find(function(i){return i.id===f.itemId;}); if(!item) return;
+    const ns=applyAction(state,{type:"TRANSFER_STOCK",transfer:{from:item.almacen,to:f.to,itemId:f.itemId,qty:parseFloat(f.qty),reason:f.reason||""}});
+    setState(ns); await save(ns); setStockModal(null); setStockForm({});
+  };
+  const doAjuste=async function(){
+    const f=stockForm; if(!f.itemId||f.delta===undefined||f.delta==="") return;
+    const ns=applyAction(state,{type:"ADJUST_STOCK",adjustments:[{id:f.itemId,delta:parseFloat(f.delta),reason:f.reason||"ajuste"}]});
+    setState(ns); await save(ns); setStockModal(null); setStockForm({});
+  };
+
+  const sendMsg=async function(){
+    const text=input.trim(); if(!text||loading) return;
+    setInput("");
+    const userMsg={role:"user",text};
+    const newMsgs=[...msgs,userMsg];
+    setMsgs(newMsgs); setLoading(true);
+    const ctx="\n\nESTADO: "+state.inventory.length+" articulos, "+state.assets.length+" activos, "+state.transactions.length+" txns.";
+    try {
+      const apiMsgs=newMsgs.map(function(m,idx){return {role:m.role,content:(m.role==="user"&&idx===newMsgs.length-1)?m.text+ctx:m.text};});
+      const raw=await callAPI(SYS,apiMsgs);
+      const parsed=parseAction(raw);
+      let ns=state;
+      if (parsed.action) { ns=applyAction(state,parsed.action); setState(ns); await save(ns); }
+      setMsgs(function(prev){return [...prev,{role:"assistant",text:parsed.clean,action:parsed.action}];});
+    } catch(e) { setMsgs(function(prev){return [...prev,{role:"assistant",text:"Error: "+e.message}];}); }
+    finally { setLoading(false); }
+  };
+  const parseTpv=async function(){
+    const text=tpvInput.trim(); if(!text||tpvLoading) return;
+    setTpvLoading(true);
+    try { const raw=await callAPI(TPV_SYS,[{role:"user",content:text}]); const sale=parseSale(raw); if(sale){setPendingSale(sale);setTpvMode("preview");} }
+    catch(e) {} finally { setTpvLoading(false); }
+  };
+
+  const fin=useMemo(function(){
+    const txns=state.transactions||[], assets=state.assets||[], loans=state.loans||[], inv=state.inventory||[];
+    const ingresos=txns.filter(function(t){return t.type==="ingreso";}).reduce(function(s,t){return s+t.amount;},0);
+    const gastos=txns.filter(function(t){return t.type==="gasto";}).reduce(function(s,t){return s+t.amount;},0);
+    const now=Date.now(), threeM=now-90*24*60*60*1000;
+    const rG=txns.filter(function(t){return t.type==="gasto"&&new Date(t.date).getTime()>threeM;}).reduce(function(s,t){return s+t.amount;},0);
+    const rI=txns.filter(function(t){return t.type==="ingreso"&&new Date(t.date).getTime()>threeM;}).reduce(function(s,t){return s+t.amount;},0);
+    const burnRate=rG/3, monthlyRev=rI/3;
+    const assetData=assets.map(function(a){return {...a,...calcAsset(a)};});
+    const totalBook=assetData.reduce(function(s,a){return s+a.bookValue;},0);
+    const annualDep=assetData.reduce(function(s,a){return s+a.annualDep;},0);
+    const loanData=loans.map(function(l){return {...l,...calcLoan(l)};});
+    const totalDebt=loanData.reduce(function(s,l){return s+l.remaining;},0);
+    const stockValue=inv.reduce(function(s,i){return s+(i.quantity||0)*(i.unitCost||0);},0);
+    const netAssets=stockValue+totalBook-totalDebt;
+    const ebitdaM=monthlyRev-burnRate+annualDep/12, ebitdaA=ebitdaM*12;
+    const ebitdaMargin=monthlyRev>0?(ebitdaM/monthlyRev)*100:0;
+    const annualRev=monthlyRev*12;
+    const cogs=txns.filter(function(t){return t.category==="compra_insumos";}).reduce(function(s,t){return s+t.amount;},0);
+    const grossMargin=ingresos>0?((ingresos-cogs)/ingresos)*100:0;
+    const netIncome=ingresos-gastos;
+    const vals=[netIncome>0?netIncome*2.5:0,Math.max(0,netAssets),Math.max(0,annualRev*0.8),ebitdaA>0?ebitdaA*4:0].filter(function(v){return v>0;});
+    const valBlended=vals.length?vals.reduce(function(s,v){return s+v;},0)/vals.length:0;
+    const todaySales=(state.tickets||[]).filter(function(t){return t.date&&t.date.slice(0,10)===new Date().toISOString().slice(0,10);}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    return {ingresos,gastos,netIncome,burnRate,monthlyRev,assetData,totalBook,annualDep,loanData,totalDebt,netAssets,ebitdaM,ebitdaA,ebitdaMargin,annualRev,valBlended,grossMargin,todaySales};
+  },[state]);
+
+  const netColor=fin.netIncome>=0?"#7A9E7E":"#FF8060";
+  const stockByAlm=useMemo(function(){
+    const out={tostador:[],tienda:[],takeaway:[]};
+    (state.inventory||[]).forEach(function(i){const a=i.almacen||"tostador";if(out[a])out[a].push(i);});
+    return out;
+  },[state.inventory]);
+  const stockVal=useMemo(function(){
+    const out={tostador:0,tienda:0,takeaway:0};
+    (state.inventory||[]).forEach(function(i){const a=i.almacen||"tostador";if(out[a]!==undefined)out[a]+=(i.quantity||0)*(i.unitCost||0);});
+    return out;
+  },[state.inventory]);
+
+  const ST={
+    root:{fontFamily:"'Georgia','Times New Roman',serif",background:"#130E07",height:"100vh",display:"flex",flexDirection:"column",color:"#E8DCC8",overflow:"hidden"},
+    hdr:{background:"linear-gradient(135deg,#251608,#130E07)",borderBottom:"1px solid rgba(201,169,110,0.18)",padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,minHeight:46},
+    main:{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minHeight:0},
+    cont:{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",minHeight:0},
+    bnav:{height:56,background:"#0A0600",borderTop:"1px solid rgba(201,169,110,0.15)",display:"flex",alignItems:"stretch",flexShrink:0},
+    nb:function(a){return{flex:1,background:a?"rgba(201,169,110,0.1)":"transparent",border:"none",borderTop:a?"2px solid #C9A96E":"2px solid transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,minWidth:0,padding:"3px 0"};},
+    panel:{flex:1,overflowY:"auto",padding:"10px"},
+    card:{padding:"8px 10px",marginBottom:5,background:"rgba(255,255,255,0.025)",borderRadius:6,border:"1px solid rgba(255,255,255,0.05)"},
+    secT:{fontSize:8,letterSpacing:2,color:"#5A4020",textTransform:"uppercase",margin:"10px 0 5px"},
+    ta:{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:8,padding:"9px 12px",color:"#E8DCC8",fontSize:13,fontFamily:"Georgia,serif",resize:"none",outline:"none",lineHeight:1.5,maxHeight:80},
+    bubble:function(r){return{maxWidth:"84%",padding:"9px 13px",borderRadius:r==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:r==="user"?"linear-gradient(135deg,#5C3D1C,#3A2410)":"rgba(255,255,255,0.04)",border:r==="user"?"none":"1px solid rgba(255,255,255,0.07)",fontSize:12,lineHeight:1.55};},
+    inp:{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:6,padding:"7px 9px",color:"#E8DCC8",fontSize:12,fontFamily:"Georgia,serif",outline:"none",boxSizing:"border-box"},
+    sel:{width:"100%",background:"#1A0E04",border:"1px solid rgba(201,169,110,0.2)",borderRadius:6,padding:"7px 9px",color:"#E8DCC8",fontSize:12,fontFamily:"Georgia,serif",outline:"none",boxSizing:"border-box"},
+  };
+
+
+  const renderFastPOS=function(){
+    const addonT=ADDONS.filter(function(a){return fAddons.includes(a.id);}).reduce(function(s,a){return s+a.extra;},0);
+    return (
+      <div style={{display:"flex",flexDirection:"column",height:"100%",background:"#0E0903",overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:5,padding:"6px 10px",borderBottom:"1px solid rgba(201,169,110,0.12)",flexShrink:0,flexWrap:"wrap"}}>
+          <button onClick={function(){setTpvMode("input");}} style={{padding:"5px 9px",fontSize:9,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:6,color:"#6A5535",cursor:"pointer",fontFamily:"inherit"}}>Texto</button>
+          <div style={{display:"flex",gap:3}}>
+            <button onClick={function(){setFSize("normal");}} style={{padding:"6px 10px",borderRadius:7,border:"1px solid "+(fSize==="normal"?"#C9A96E":"rgba(201,169,110,0.15)"),background:fSize==="normal"?"rgba(201,169,110,0.18)":"transparent",cursor:"pointer",fontSize:11,color:fSize==="normal"?"#C9A96E":"#6A5535",fontFamily:"inherit"}}>Normal</button>
+            <button onClick={function(){setFSize("doble");}} style={{padding:"6px 10px",borderRadius:7,border:"1px solid "+(fSize==="doble"?"#C9A96E":"rgba(201,169,110,0.15)"),background:fSize==="doble"?"rgba(201,169,110,0.18)":"transparent",cursor:"pointer",fontSize:11,color:fSize==="doble"?"#C9A96E":"#6A5535",fontFamily:"inherit"}}>Doble</button>
+          </div>
+          <div style={{display:"flex",gap:3}}>
+            {ADDONS.map(function(a){
+              const active=fAddons.includes(a.id);
+              return <button key={a.id} onClick={function(){setFAddons(function(prev){return active?prev.filter(function(x){return x!==a.id;}):[...prev,a.id];});}} style={{padding:"6px 9px",borderRadius:16,fontSize:10,border:"1px solid "+(active?"#C9A96E":"rgba(201,169,110,0.15)"),background:active?"rgba(201,169,110,0.18)":"transparent",color:active?"#C9A96E":"#6A5535",cursor:"pointer",fontFamily:"inherit"}}>{a.name}</button>;
+            })}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+            <button onClick={function(){setFQty(function(q){return Math.max(1,q-1);});}} style={{width:28,height:28,borderRadius:"50%",border:"1px solid rgba(201,169,110,0.3)",background:"rgba(201,169,110,0.08)",color:"#C9A96E",fontSize:14,cursor:"pointer"}}>-</button>
+            <span style={{fontSize:13,color:"#C9A96E",minWidth:16,textAlign:"center",fontWeight:"bold"}}>{fQty}</span>
+            <button onClick={function(){setFQty(function(q){return q+1;});}} style={{width:28,height:28,borderRadius:"50%",border:"1px solid rgba(201,169,110,0.3)",background:"rgba(201,169,110,0.08)",color:"#C9A96E",fontSize:14,cursor:"pointer"}}>+</button>
+          </div>
+        </div>
+        <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+          <div style={{flex:1,padding:"7px 8px",overflowY:"auto"}}>
+            <div style={{fontSize:8,letterSpacing:2,color:"#5A4020",textTransform:"uppercase",margin:"4px 0 6px"}}>Con talla</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:8}}>
+              {PRODUCTS.map(function(p){
+                return (
+                  <button key={p.id} onClick={function(){addToCart(p);}} style={{padding:"11px 6px",borderRadius:9,border:"1px solid rgba(201,169,110,0.15)",background:"rgba(255,255,255,0.03)",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
+                    <div style={{fontSize:18,marginBottom:2}}>{p.emoji}</div>
+                    <div style={{fontSize:10,color:"#C4B49A",lineHeight:1.2,marginBottom:2}}>{p.name}</div>
+                    <div style={{fontSize:10,color:"#C9A96E"}}>{fmt(p.prices[fSize]+addonT)}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{fontSize:8,letterSpacing:2,color:"#5A4020",textTransform:"uppercase",margin:"6px 0 6px"}}>Precio fijo</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}}>
+              {PRODUCTS_FIXED.map(function(p){
+                const isTest=p.price===0;
+                return (
+                  <button key={p.id} onClick={function(){addFixedToCart(p);}} style={{padding:"10px 4px",borderRadius:9,border:"1px solid "+(isTest?"rgba(255,150,0,0.2)":"rgba(201,169,110,0.15)"),background:isTest?"rgba(255,150,0,0.05)":"rgba(255,255,255,0.03)",cursor:"pointer",textAlign:"center",fontFamily:"inherit"}}>
+                    <div style={{fontSize:16,marginBottom:2}}>{p.emoji}</div>
+                    <div style={{fontSize:9,color:"#C4B49A",lineHeight:1.2,marginBottom:2}}>{p.name}</div>
+                    <div style={{fontSize:10,color:isTest?"#FFA040":"#C9A96E"}}>{isTest?"GRATIS":fmt(p.price)}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8}}>
+              <div onClick={function(){setFBolsa(function(b){return !b;});}} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 10px",borderRadius:8,border:"1px solid "+(fBolsa?"#7A9E7E":"rgba(201,169,110,0.15)"),background:fBolsa?"rgba(122,158,126,0.12)":"rgba(255,255,255,0.02)",cursor:"pointer"}}>
+                <span style={{fontSize:14}}>🛍</span>
+                <div>
+                  <div style={{fontSize:9,color:"#C4B49A"}}>Bolsa papel</div>
+                  <div style={{fontSize:9,color:fBolsa?"#7A9E7E":"#5A4030"}}>{fmt(BOLSA_P)} {fBolsa?"incluida":"no"}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={{width:130,background:"rgba(0,0,0,0.3)",borderLeft:"1px solid rgba(201,169,110,0.1)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"5px 8px",borderBottom:"1px solid rgba(201,169,110,0.1)",fontSize:8,letterSpacing:2,color:"#5A4020",textTransform:"uppercase",flexShrink:0}}>Pedido</div>
+            <div style={{flex:1,overflowY:"auto"}}>
+              {fCart.length===0&&!fBolsa?(
+                <div style={{padding:"12px 8px",textAlign:"center",color:"#3A2810",fontSize:10}}>Vacio</div>
+              ):(
+                <div>
+                  {fCart.map(function(item){
+                    return (
+                      <div key={item.id} style={{padding:"5px 7px",borderBottom:"1px solid rgba(255,255,255,0.05)",fontSize:9}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                          <span style={{color:"#C4B49A",flex:1,lineHeight:1.3,paddingRight:3,fontSize:9}}>{item.desc}</span>
+                          <button onClick={function(){setFCart(function(p){return p.filter(function(i){return i.id!==item.id;});});}} style={{background:"none",border:"none",color:"#4A2020",cursor:"pointer",fontSize:11,padding:0}}>x</button>
+                        </div>
+                        <div style={{color:"#C9A96E",marginTop:1}}>{item.qty}x{fmt(item.unitPrice)}</div>
+                      </div>
+                    );
+                  })}
+                  {fBolsa&&<div style={{padding:"5px 7px",fontSize:9}}><div style={{color:"#C4B49A"}}>🛍 Bolsa</div><div style={{color:"#C9A96E"}}>{fmt(BOLSA_P)}</div></div>}
+                </div>
+              )}
+            </div>
+            {fastTotal>0&&(
+              <div style={{padding:"6px 8px",borderTop:"1px solid rgba(201,169,110,0.15)",flexShrink:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:"bold"}}>
+                  <span style={{color:"#8A7060"}}>Total</span>
+                  <span style={{color:"#C9A96E"}}>{fmt(fastTotal)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{padding:"7px 10px",borderTop:"1px solid rgba(201,169,110,0.15)",background:"#0A0600",flexShrink:0}}>
+          <div style={{display:"flex",gap:3,marginBottom:5}}>
+            <button onClick={function(){setFPay("efectivo");}} style={{flex:1,padding:"6px 3px",fontSize:9,textTransform:"uppercase",textAlign:"center",border:"1px solid "+(fPay==="efectivo"?"#C9A96E":"rgba(201,169,110,0.12)"),background:fPay==="efectivo"?"rgba(201,169,110,0.15)":"transparent",color:fPay==="efectivo"?"#C9A96E":"#5A4030",cursor:"pointer",fontFamily:"inherit",borderRadius:5}}>💵 Ef.</button>
+            <button onClick={function(){setFPay("tarjeta");}} style={{flex:1,padding:"6px 3px",fontSize:9,textTransform:"uppercase",textAlign:"center",border:"1px solid "+(fPay==="tarjeta"?"#C9A96E":"rgba(201,169,110,0.12)"),background:fPay==="tarjeta"?"rgba(201,169,110,0.15)":"transparent",color:fPay==="tarjeta"?"#C9A96E":"#5A4030",cursor:"pointer",fontFamily:"inherit",borderRadius:5}}>💳 Tarj.</button>
+            <button onClick={function(){setFPay("bizum");}} style={{flex:1,padding:"6px 3px",fontSize:9,textTransform:"uppercase",textAlign:"center",border:"1px solid "+(fPay==="bizum"?"#C9A96E":"rgba(201,169,110,0.12)"),background:fPay==="bizum"?"rgba(201,169,110,0.15)":"transparent",color:fPay==="bizum"?"#C9A96E":"#5A4030",cursor:"pointer",fontFamily:"inherit",borderRadius:5}}>📱 Biz.</button>
+          </div>
+          <div style={{display:"flex",gap:5}}>
+            <button onClick={resetCart} style={{padding:"10px 11px",fontSize:10,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,color:"#6A5535",cursor:"pointer",fontFamily:"inherit"}}>🗑</button>
+            <button onClick={checkoutFast} disabled={fastTotal===0} style={{flex:1,padding:"10px",fontSize:13,fontWeight:"bold",background:fastTotal===0?"rgba(201,169,110,0.15)":"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:8,color:"#1A0E04",cursor:fastTotal===0?"not-allowed":"pointer",fontFamily:"Georgia,serif",opacity:fastTotal===0?0.5:1}}>
+              Cobrar {fmt(fastTotal)}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTPV=function(){
+    if (tpvMode==="fast") return renderFastPOS();
+    if (tpvMode==="print"&&lastTicket) return (
+      <div style={{padding:"10px",overflowY:"auto",flex:1}}>
+        {fullscreen&&imgUrl&&(
+          <div onClick={function(){setFullscreen(false);}} style={{position:"absolute",inset:0,zIndex:200,background:"#000",display:"flex",flexDirection:"column",alignItems:"center",overflowY:"auto",padding:"10px"}}>
+            <div style={{padding:"8px",background:"rgba(201,169,110,0.15)",borderRadius:8,marginBottom:10,fontSize:11,color:"#C9A96E",textAlign:"center",width:"100%",maxWidth:400}}>Captura ahora - Toca para cerrar</div>
+            <img src={imgUrl} alt="Ticket" style={{width:"100%",maxWidth:400,borderRadius:6}} />
+          </div>
+        )}
+        <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
+          <button onClick={function(){setTpvMode("input");setImgUrl(null);setFullscreen(false);}} style={{padding:"5px 9px",fontSize:9,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:5,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Nueva</button>
+          <button onClick={generateImg} style={{padding:"5px 9px",fontSize:9,background:"rgba(201,169,110,0.08)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:5,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>🖼 Imagen</button>
+          {imgUrl&&(
+            <div style={{display:"flex",gap:4}}>
+              <button onClick={copyClip} style={{padding:"5px 9px",fontSize:9,background:clipStatus==="ok"?"rgba(122,158,126,0.2)":"rgba(201,169,110,0.08)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:5,color:clipStatus==="ok"?"#7A9E7E":"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>{clipStatus==="ok"?"Copiado":"Copiar"}</button>
+              <button onClick={function(){setFullscreen(true);}} style={{padding:"5px 9px",fontSize:9,background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:5,color:"#1A0E04",cursor:"pointer",fontFamily:"inherit",fontWeight:"bold"}}>Pantalla</button>
+            </div>
+          )}
+        </div>
+        <div style={{background:"#fff",borderRadius:8,overflow:"hidden",marginBottom:8}}>
+          <TicketPreview ticket={lastTicket.ticket} business={lastTicket.business} />
+        </div>
+        {imgUrl&&<img src={imgUrl} alt="Ticket" style={{width:"100%",borderRadius:7,display:"block",cursor:"pointer",marginBottom:8}} onClick={function(){setFullscreen(true);}} />}
+        <div style={{padding:"7px 10px",background:"rgba(122,158,126,0.08)",border:"1px solid rgba(122,158,126,0.2)",borderRadius:7,fontSize:10,color:"#7A9E7E"}}>
+          Ticket #{String(lastTicket.ticket.number||0).padStart(6,"0")} - {fmt(lastTicket.ticket.totals&&lastTicket.ticket.totals.total||0)} registrados
+        </div>
+      </div>
+    );
+    if (tpvMode==="preview"&&pendingSale) {
+      var rawTotals=calcTotals(pendingSale.items);
+      var tierDisc=tpvClient?getTier(tpvClient.totalSpent||0,tpvClient.tierOverride):null;
+      var tierDiscAmt=tierDisc&&tierDisc.discount>0?parseFloat((rawTotals.total*tierDisc.discount/100).toFixed(2)):0;
+      var couponBase=rawTotals.total;
+      if (tpvCoupon&&tpvCoupon.active&&tpvCoupon.applyTo==="products"&&tpvCoupon.productNames&&tpvCoupon.productNames.length>0) {
+        couponBase=pendingSale.items.reduce(function(s,item){
+          var matches=tpvCoupon.productNames.some(function(n){return item.desc.toLowerCase().includes(n.toLowerCase());});
+          return s+(matches?(item.qty||1)*item.unitPrice:0);
+        },0);
+      }
+      var couponDiscAmt=tpvCoupon&&tpvCoupon.active?(tpvCoupon.type==="percent"?parseFloat((couponBase*tpvCoupon.value/100).toFixed(2)):Math.min(tpvCoupon.value,couponBase)):0;
+      var totalDisc=Math.min(tierDiscAmt+couponDiscAmt,rawTotals.total);
+      var finalAmt=parseFloat((rawTotals.total-totalDisc).toFixed(2));
+      var clientMatches=tpvClientSearch.length>1?(state.clients||[]).filter(function(c){return c.name.toLowerCase().includes(tpvClientSearch.toLowerCase());}):[];
+      return (
+        <div style={{padding:"10px",overflowY:"auto",flex:1}}>
+          <div style={{fontSize:10,color:"#C9A96E",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Vista previa</div>
+          {pendingSale.items.map(function(item,i){
+            return (
+              <div key={i} style={{...ST.card,display:"flex",justifyContent:"space-between"}}>
+                <div><div style={{fontSize:11,color:"#E8DCC8"}}>{item.desc}</div><div style={{fontSize:9,color:"#5A4030"}}>{IVA_LABELS[item.vatType]} - {fmt(item.unitPrice)}/ud</div></div>
+                <div style={{textAlign:"right"}}><div style={{fontSize:11,color:"#C9A96E",fontWeight:"bold"}}>{fmt(item.qty*item.unitPrice)}</div><div style={{fontSize:9,color:"#5A4030"}}>{item.qty}x</div></div>
+              </div>
+            );
+          })}
+          <div style={{padding:"9px 11px",background:"rgba(201,169,110,0.08)",borderRadius:7,border:"1px solid rgba(201,169,110,0.2)",marginBottom:8,marginTop:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:"#8A7060"}}>Subtotal</span><span>{fmt(rawTotals.total)}</span></div>
+            {totalDisc>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#7A9E7E"}}><span>Descuento</span><span>-{fmt(totalDisc)}</span></div>}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:15,fontWeight:"bold",marginTop:3}}><span>TOTAL</span><span style={{color:"#C9A96E"}}>{fmt(finalAmt)}</span></div>
+            <div style={{fontSize:9,color:"#8A7060"}}>IVA incl.: {fmt(rawTotals.totalVat)}</div>
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Cliente (opcional)</div>
+            {tpvClient?(
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 9px",background:"rgba(122,158,126,0.1)",border:"1px solid rgba(122,158,126,0.25)",borderRadius:7}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:"#E8DCC8"}}>{tpvClient.name}</div>
+                  <div style={{fontSize:9,color:tierDisc?tierDisc.color:"#5A4030"}}>{tierDisc?tierDisc.label+" - "+tierDisc.discount+"% dto":""}</div>
+                </div>
+                <button onClick={function(){setTpvClient(null);setTpvClientSearch("");}} style={{background:"none",border:"none",color:"#6A4030",cursor:"pointer",fontSize:13}}>x</button>
+              </div>
+            ):(
+              <div style={{position:"relative"}}>
+                <input value={tpvClientSearch} onChange={function(e){setTpvClientSearch(e.target.value);}} placeholder="Buscar cliente..." style={{...ST.inp}} />
+                {clientMatches.length>0&&(
+                  <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#1A0E04",border:"1px solid rgba(201,169,110,0.2)",borderRadius:6,zIndex:50,maxHeight:120,overflowY:"auto"}}>
+                    {clientMatches.slice(0,5).map(function(c){
+                      var ct=getTier(c.totalSpent||0,c.tierOverride);
+                      return (
+                        <div key={c.id} onClick={function(){setTpvClient(c);setTpvClientSearch("");}} style={{padding:"7px 10px",cursor:"pointer",borderBottom:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between"}}>
+                          <span style={{fontSize:11,color:"#E8DCC8"}}>{c.name}</span>
+                          <span style={{fontSize:9,color:ct.color}}>{ct.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div style={{marginBottom:8}}>
+            <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Cupon (opcional)</div>
+            {tpvCoupon?(
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 9px",background:"rgba(122,158,126,0.1)",border:"1px solid rgba(122,158,126,0.25)",borderRadius:7}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:11,color:"#C9A96E",fontWeight:"bold"}}>{tpvCoupon.code}</div>
+                  <div style={{fontSize:9,color:"#7A9E7E"}}>{tpvCoupon.type==="percent"?"-"+tpvCoupon.value+"%":"-"+fmt(tpvCoupon.value)}{tpvCoupon.applyTo==="products"&&tpvCoupon.productNames&&tpvCoupon.productNames.length>0?" sobre: "+tpvCoupon.productNames.join(", "):" sobre ticket"}</div>
+                </div>
+                <button onClick={function(){setTpvCoupon(null);setTpvCouponInput("");}} style={{background:"none",border:"none",color:"#6A4030",cursor:"pointer",fontSize:13}}>x</button>
+              </div>
+            ):(
+              <div style={{display:"flex",gap:5}}>
+                <input value={tpvCouponInput} onChange={function(e){setTpvCouponInput(e.target.value.toUpperCase());}} placeholder="CODIGO" style={{...ST.inp,flex:1,letterSpacing:2}} />
+                <button onClick={function(){
+                  var c=(state.coupons||[]).find(function(c){return c.code===tpvCouponInput&&c.active;});
+                  if (c) setTpvCoupon(c);
+                  else alert("Cupon no valido o expirado.");
+                }} style={{padding:"7px 12px",background:"rgba(201,169,110,0.15)",border:"1px solid rgba(201,169,110,0.3)",borderRadius:7,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit",fontSize:10}}>Aplicar</button>
+              </div>
+            )}
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={function(){setPendingSale(null);setTpvMode("input");setTpvClient(null);setTpvCoupon(null);setTpvCouponInput("");setTpvClientSearch("");}} style={{flex:1,padding:"9px",fontSize:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+            <button onClick={confirmSale} style={{flex:2,padding:"9px",fontSize:13,fontWeight:"bold",background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:7,color:"#1A0E04",cursor:"pointer",fontFamily:"Georgia,serif"}}>Confirmar {fmt(finalAmt)}</button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+        <div style={{flex:1,padding:"10px",overflowY:"auto"}}>
+          <button onClick={function(){setTpvMode("fast");}} style={{width:"100%",marginBottom:10,padding:"13px",background:"linear-gradient(135deg,rgba(201,169,110,0.12),rgba(201,169,110,0.06))",border:"1px solid rgba(201,169,110,0.3)",borderRadius:10,cursor:"pointer",fontFamily:"Georgia,serif",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{textAlign:"left"}}><div style={{fontSize:13,color:"#C9A96E",fontWeight:"bold",marginBottom:1}}>TPV Tactil</div><div style={{fontSize:9,color:"#6A5535"}}>Productos, tallas, anadidos</div></div>
+            <span style={{fontSize:20,color:"#C9A96E"}}>{"->"}</span>
+          </button>
+          <div style={{...ST.card,padding:"10px"}}>
+            <div style={ST.secT}>Resumen hoy</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+              <KPI label="Tickets" value={(state.tickets||[]).filter(function(t){return t.date&&t.date.slice(0,10)===new Date().toISOString().slice(0,10);}).length} />
+              <KPI label="Ventas hoy" value={fmt(fin.todaySales)} color="#7A9E7E" />
+            </div>
+          </div>
+        </div>
+        <div style={{padding:"8px 10px",borderTop:"1px solid rgba(201,169,110,0.1)",background:"#0A0600",display:"flex",gap:6,alignItems:"flex-end",flexShrink:0}}>
+          <textarea value={tpvInput} onChange={function(e){setTpvInput(e.target.value);}} onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();parseTpv();}}} placeholder="Ej: 2 cortados y un croissant, tarjeta" style={{...ST.ta,fontSize:12}} rows={2} disabled={tpvLoading} />
+          <button onClick={parseTpv} disabled={tpvLoading||!tpvInput.trim()} style={{width:40,height:40,background:tpvLoading||!tpvInput.trim()?"rgba(201,169,110,0.1)":"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
+            {tpvLoading?"...":"->"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCaja=function(){
+    const caja=state.caja||{abierta:false};
+    const hoy=new Date().toISOString().slice(0,10);
+    const tkHoy=(state.tickets||[]).filter(function(t){return t.date&&t.date.slice(0,10)===hoy;});
+    const ef=tkHoy.filter(function(t){return t.paymentMethod==="efectivo";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const ta=tkHoy.filter(function(t){return t.paymentMethod==="tarjeta";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const bi=tkHoy.filter(function(t){return t.paymentMethod==="bizum";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    return (
+      <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+        <div style={{padding:"12px",background:caja.abierta?"rgba(122,158,126,0.1)":"rgba(255,100,60,0.08)",border:"1px solid "+(caja.abierta?"rgba(122,158,126,0.3)":"rgba(255,100,60,0.25)"),borderRadius:10,marginBottom:10,textAlign:"center"}}>
+          <div style={{fontSize:20,marginBottom:3}}>{caja.abierta?"🟢":"🔴"}</div>
+          <div style={{fontSize:13,fontWeight:"bold",color:caja.abierta?"#7A9E7E":"#FF8060"}}>{caja.abierta?"CAJA ABIERTA":"CAJA CERRADA"}</div>
+          {caja.abierta&&<div style={{fontSize:9,color:"#6A5535",marginTop:2}}>Apertura: {fmtDT(caja.apertura)} - Fondo: {fmt(caja.fondoInicial)}</div>}
+        </div>
+        {!caja.abierta?(
+          <div style={{padding:"12px",background:"rgba(255,255,255,0.025)",borderRadius:10,border:"1px solid rgba(255,255,255,0.07)"}}>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Fondo inicial (EUR)</div>
+              <input style={{...ST.inp,fontSize:18,textAlign:"center"}} type="number" value={fondoInput} onChange={function(e){setFondoInput(e.target.value);}} />
+</div>
+            <button onClick={abrirCaja} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#7A9E7E,#4A6E4E)",border:"none",borderRadius:7,color:"#fff",fontFamily:"Georgia,serif",fontSize:12,fontWeight:"bold",cursor:"pointer"}}>Abrir con {fmt(parseFloat(fondoInput)||0)}</button>
+          </div>
+        ):(
+          <div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:10}}>
+              <KPI label="Total ventas" value={fmt(ef+ta+bi)} color="#7A9E7E" />
+              <KPI label="Tickets hoy" value={tkHoy.length} />
+              <KPI label="Efectivo" value={fmt(ef)} color="#C9A96E" />
+              <KPI label="Tarjeta+Bizum" value={fmt(ta+bi)} color="#8A9EAE" />
+            </div>
+            <button onClick={cerrarCaja} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#B07D62,#7A4530)",border:"none",borderRadius:7,color:"#fff",fontFamily:"Georgia,serif",fontSize:12,fontWeight:"bold",cursor:"pointer"}}>Cerrar caja y registrar ventas</button>
+          </div>
+        )}
+        {caja.cierre&&(
+          <div style={{marginTop:10,padding:"10px",background:"rgba(255,255,255,0.02)",borderRadius:9,border:"1px solid rgba(255,255,255,0.05)"}}>
+            <div style={ST.secT}>Ultimo cierre</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              <div style={{fontSize:10}}><span style={{color:"#6A5535"}}>Efectivo: </span><span style={{color:"#C9A96E"}}>{fmt(caja.cierre.efectivo)}</span></div>
+              <div style={{fontSize:10}}><span style={{color:"#6A5535"}}>Tarjeta: </span><span style={{color:"#C9A96E"}}>{fmt(caja.cierre.tarjeta)}</span></div>
+              <div style={{fontSize:10}}><span style={{color:"#6A5535"}}>Bizum: </span><span style={{color:"#C9A96E"}}>{fmt(caja.cierre.bizum)}</span></div>
+              <div style={{fontSize:10}}><span style={{color:"#6A5535"}}>Total: </span><span style={{color:"#C9A96E",fontWeight:"bold"}}>{fmt(caja.cierre.total)}</span></div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderHistorial=function(){
+    const now=Date.now();
+    const periodMs={hoy:0,semana:7*24*60*60*1000,mes:30*24*60*60*1000,anio:365*24*60*60*1000,todo:RETENTION*365.25*24*60*60*1000};
+    const desde=histFilter==="hoy"?new Date().toISOString().slice(0,10):new Date(now-(periodMs[histFilter==='ano'?'anio':histFilter]||0)).toISOString().slice(0,10);
+    const filtered=[...(state.tickets||[])].filter(function(t){
+      const d=t.date&&t.date.slice(0,10)||"";
+      return histFilter==="hoy"?d===desde:d>=desde;
+    }).filter(function(t){
+      if(!histSearch.trim()) return true;
+      const q=histSearch.toLowerCase();
+      const num=String(t.number||"").padStart(6,"0");
+      const summary=t.itemsSummary||(t.items||[]).map(function(i){return i.desc;}).join(" ");
+      return num.includes(q)||summary.toLowerCase().includes(q);
+    }).reverse();
+    const totalV=filtered.reduce(function(s,t){return s+(t.total||t.totals&&t.totals.total||0);},0);
+    const totalIVA=filtered.reduce(function(s,t){return s+(t.totalVat||t.totals&&t.totals.totalVat||0);},0);
+    if (histView==="detail"&&histSel) {
+      const t=histSel, isC=t._compressed;
+      const total=t.total||t.totals&&t.totals.total||0;
+      return (
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{display:"flex",gap:6,padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0,alignItems:"center"}}>
+            <button onClick={function(){setHistView("list");}} style={{padding:"5px 10px",fontSize:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Volver</button>
+            <span style={{fontSize:11,color:"#C9A96E",fontWeight:"bold"}}>Ticket #{String(t.number||0).padStart(6,"0")}</span>
+            {!isC&&(
+              <button onClick={function(){setLastTicket({ticket:t,business:state.business||INIT_BIZ});setTab("tpv");setTpvMode("print");setImgUrl(null);}} style={{marginLeft:"auto",padding:"5px 12px",fontSize:10,background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:6,color:"#1A0E04",cursor:"pointer",fontFamily:"inherit",fontWeight:"bold"}}>Reimprimir</button>
+            )}
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:8}}>
+              <KPI label="Fecha" value={fmtDT(t.date)} color="#C4B49A" />
+              <KPI label="Total" value={fmt(total)} color="#C9A96E" />
+              <KPI label="IVA" value={fmt(t.totalVat||t.totals&&t.totals.totalVat||0)} color="#C4B49A" />
+              <KPI label="Pago" value={(t.paymentMethod||"").toUpperCase()} />
+            </div>
+            {isC?(
+              <div style={{padding:"10px",background:"rgba(255,255,255,0.02)",borderRadius:8,border:"1px solid rgba(255,255,255,0.06)",marginBottom:8}}>
+                <div style={{fontSize:8,color:"#5A4030",textTransform:"uppercase",marginBottom:5}}>Artículos (archivo comprimido)</div>
+                <div style={{fontSize:11,color:"#C4B49A",lineHeight:1.7}}>{t.itemsSummary||"-"}</div>
+              </div>
+            ):(
+              <div style={{marginBottom:8}}>
+                <div style={ST.secT}>Artículos</div>
+                {(t.items||[]).map(function(item,idx){
+                  return (
+                    <div key={idx} style={{display:"flex",justifyContent:"space-between",padding:"6px 9px",marginBottom:3,background:"rgba(255,255,255,0.025)",borderRadius:6}}>
+                      <div><div style={{fontSize:11,color:"#E8DCC8"}}>{item.qty>1?item.qty+"x ":""}{item.desc}</div><div style={{fontSize:9,color:"#5A4030"}}>{IVA_LABELS[item.vatType]} - {fmt(item.unitPrice)}/ud</div></div>
+                      <div style={{fontSize:11,color:"#C9A96E",fontWeight:"bold"}}>{fmt(item.qty*item.unitPrice)}</div>
+                    </div>
+                  );
+                })}
+                <div style={{background:"#fff",borderRadius:8,overflow:"hidden",marginTop:8}}>
+                  <TicketPreview ticket={t} business={state.business||INIT_BIZ} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0}}>
+          <div style={{display:"flex",marginBottom:6,borderRadius:6,overflow:"hidden",border:"1px solid rgba(201,169,110,0.15)"}}>
+            {["hoy","semana","mes","año","todo"].map(function(k){
+              return <button key={k} onClick={function(){setHistFilter(k);}} style={{flex:1,padding:"6px 0",fontSize:9,letterSpacing:1,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:histFilter===k?"#130E07":"#5A4020",background:histFilter===k?"#C9A96E":"transparent",border:"none",fontFamily:"inherit"}}>{k==="hoy"?"Hoy":k==="semana"?"7d":k==="mes"?"30d":k==="año"?"1a":"Todo"}</button>;
+            })}
+          </div>
+          <input value={histSearch} onChange={function(e){setHistSearch(e.target.value);}} placeholder="Buscar número, articulo o importe..." style={ST.inp} />
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,padding:"7px 10px",flexShrink:0}}>
+          <KPI label="Tickets" value={filtered.length} color="#C9A96E" />
+          <KPI label="Ventas" value={fmt(totalV)} color="#7A9E7E" />
+          <KPI label="IVA" value={fmt(totalIVA)} color="#C4B49A" />
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"0 10px 10px"}}>
+          {filtered.length===0?(
+            <div style={{textAlign:"center",color:"#3A2810",padding:"30px 0",fontSize:11}}>{histSearch?"Sin resultados.":"Sin tickets en este periodo."}</div>
+          ):filtered.map(function(t){
+            const total=t.total||t.totals&&t.totals.total||0;
+            const isC=t._compressed;
+            return (
+              <div key={t.id} onClick={function(){setHistSel(t);setHistView("detail");}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",marginBottom:3,background:"rgba(255,255,255,0.025)",borderRadius:7,border:"1px solid rgba(255,255,255,0.05)",borderLeft:"3px solid "+(isC?"#5A4030":"#C9A96E"),cursor:"pointer"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <span style={{fontSize:11,color:isC?"#6A5535":"#C9A96E",fontWeight:"bold"}}>#{String(t.number||0).padStart(6,"0")}</span>
+                  <div style={{fontSize:9,color:"#5A4030",marginTop:1}}>{fmtDT(t.date)}</div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0,marginLeft:8}}>
+                  <div style={{fontSize:13,fontWeight:"bold",color:"#E8DCC8"}}>{fmt(total)}</div>
+                </div>
+              </div>
+            );
+          })}
+          <div style={{marginTop:6,padding:"7px 9px",background:"rgba(122,158,126,0.05)",border:"1px solid rgba(122,158,126,0.12)",borderRadius:6,fontSize:9,color:"#5A6050",lineHeight:1.6}}>
+            Retencion: {RETENTION} años (art. 66-70 LGT) - Total: {state.tickets&&state.tickets.length||0} tickets
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDash=function(){
+    const hoy=new Date().toISOString().slice(0,10);
+    const desde=dashPeriod==="semana"?new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10):dashPeriod==="mes"?new Date(Date.now()-30*24*60*60*1000).toISOString().slice(0,10):"2000-01-01";
+    const tks=(state.tickets||[]).filter(function(t){return t.date&&t.date.slice(0,10)>=desde;});
+    const txns=state.transactions.filter(function(t){return t.date>=desde;});
+    const ing=txns.filter(function(t){return t.type==="ingreso";}).reduce(function(s,t){return s+t.amount;},0);
+    const gas=txns.filter(function(t){return t.type==="gasto";}).reduce(function(s,t){return s+t.amount;},0);
+    const tkHoy=(state.tickets||[]).filter(function(t){return t.date&&t.date.slice(0,10)===hoy;});
+    const ventaHoy=tkHoy.reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const maxV=Math.max.apply(null,S_VENTAS.concat(S_GASTOS).concat([1])), barH=70;
+    const ef=tks.filter(function(t){return t.paymentMethod==="efectivo";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const ta=tks.filter(function(t){return t.paymentMethod==="tarjeta";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const bi=tks.filter(function(t){return t.paymentMethod==="bizum";}).reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    const payTotal=ef+ta+bi||1;
+    return (
+      <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+        <div style={{display:"flex",marginBottom:10,borderRadius:6,overflow:"hidden",border:"1px solid rgba(201,169,110,0.15)"}}>
+          <button onClick={function(){setDashPeriod("semana");}} style={{flex:1,padding:"7px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:dashPeriod==="semana"?"#130E07":"#5A4020",background:dashPeriod==="semana"?"#C9A96E":"transparent",border:"none",fontFamily:"inherit"}}>7 dias</button>
+          <button onClick={function(){setDashPeriod("mes");}} style={{flex:1,padding:"7px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:dashPeriod==="mes"?"#130E07":"#5A4020",background:dashPeriod==="mes"?"#C9A96E":"transparent",border:"none",fontFamily:"inherit"}}>30 dias</button>
+          <button onClick={function(){setDashPeriod("total");}} style={{flex:1,padding:"7px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:dashPeriod==="total"?"#130E07":"#5A4020",background:dashPeriod==="total"?"#C9A96E":"transparent",border:"none",fontFamily:"inherit"}}>Total</button>
+        </div>
+        <div style={ST.secT}>Hoy</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
+          <KPI label="Ventas" value={fmt(ventaHoy)} color="#7A9E7E" />
+          <KPI label="Tickets" value={tkHoy.length} />
+          <KPI label="Medio" value={fmt(tkHoy.length?ventaHoy/tkHoy.length:0)} />
+        </div>
+        <div style={ST.secT}>Período</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:10}}>
+          <KPI label="Ingresos" value={fmt(ing)} color="#7A9E7E" />
+          <KPI label="Gastos" value={fmt(gas)} color="#FF8060" />
+          <KPI label="Resultado" value={fmt(ing-gas)} color={ing-gas>=0?"#C9A96E":"#FF8060"} alert={ing-gas<0} />
+          <KPI label="Tickets" value={tks.length} />
+        </div>
+        <div style={{padding:"10px",background:"rgba(255,255,255,0.02)",borderRadius:9,border:"1px solid rgba(255,255,255,0.06)",marginBottom:10}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#6A5535",textTransform:"uppercase",marginBottom:8}}>Evolución mensual (datos de ejemplo)</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:barH+16}}>
+            {MONTHS.map(function(m,i){
+              return (
+                <div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                  <div style={{display:"flex",gap:1,alignItems:"flex-end",height:barH}}>
+                    <div style={{width:"45%",height:(S_VENTAS[i]/maxV*barH)+"px",background:"#7A9E7E",borderRadius:"2px 2px 0 0"}} />
+                    <div style={{width:"45%",height:(S_GASTOS[i]/maxV*barH)+"px",background:"#FF8060",borderRadius:"2px 2px 0 0"}} />
+                  </div>
+                  <div style={{fontSize:7,color:"#5A4030"}}>{m}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{padding:"10px",background:"rgba(255,255,255,0.02)",borderRadius:9,border:"1px solid rgba(255,255,255,0.06)",marginBottom:10}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#6A5535",textTransform:"uppercase",marginBottom:7}}>Métodos de pago</div>
+          {tks.length===0?(
+            <div style={{fontSize:10,color:"#3A2810",textAlign:"center"}}>Sin datos</div>
+          ):(
+            <div>
+              {[["Efectivo",ef,"#C9A96E"],["Tarjeta",ta,"#7A9E7E"],["Bizum",bi,"#8A9EAE"]].map(function(item){
+                return (
+                  <div key={item[0]} style={{marginBottom:5}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:2}}>
+                      <span style={{color:"#C4B49A"}}>{item[0]}</span>
+                      <span style={{color:item[2]}}>{fmt(item[1])} ({((item[1]/payTotal)*100).toFixed(0)}%)</span>
+                    </div>
+                    <Bar pct={(item[1]/payTotal)*100} color={item[2]} height={4} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderFacturas=function(){
+    const validItems=factForm.items.filter(function(i){return i.desc&&i.unitPrice>0;});
+    const previewTotals=validItems.length>0?calcTotals(validItems):null;
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{display:"flex",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0}}>
+          <button onClick={function(){setFactTab("nueva");}} style={{flex:1,padding:"9px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:factTab==="nueva"?"#C9A96E":"#5A4020",background:"none",border:"none",borderBottom:factTab==="nueva"?"2px solid #C9A96E":"2px solid transparent",fontFamily:"inherit"}}>+ Nueva</button>
+          <button onClick={function(){setFactTab("lista");}} style={{flex:1,padding:"9px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:factTab==="lista"?"#C9A96E":"#5A4020",background:"none",border:"none",borderBottom:factTab==="lista"?"2px solid #C9A96E":"2px solid transparent",fontFamily:"inherit"}}>Emitidas</button>
+        </div>
+        {factTab==="nueva"?(
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            <div style={{display:"flex",gap:5,marginBottom:10}}>
+              <button onClick={function(){setFactForm(function(f){return {...f,tipo:"simplificada"};});}} style={{flex:1,padding:"7px",fontSize:10,borderRadius:6,border:"1px solid "+(factForm.tipo==="simplificada"?"#C9A96E":"rgba(201,169,110,0.2)"),background:factForm.tipo==="simplificada"?"rgba(201,169,110,0.15)":"transparent",color:factForm.tipo==="simplificada"?"#C9A96E":"#5A4030",cursor:"pointer",fontFamily:"inherit"}}>B2C</button>
+              <button onClick={function(){setFactForm(function(f){return {...f,tipo:"completa"};});}} style={{flex:1,padding:"7px",fontSize:10,borderRadius:6,border:"1px solid "+(factForm.tipo==="completa"?"#C9A96E":"rgba(201,169,110,0.2)"),background:factForm.tipo==="completa"?"rgba(201,169,110,0.15)":"transparent",color:factForm.tipo==="completa"?"#C9A96E":"#5A4030",cursor:"pointer",fontFamily:"inherit"}}>B2B</button>
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Fecha</div>
+              <input style={ST.inp} type="date" value={factForm.fecha} onChange={function(e){setFactForm(function(f){return {...f,fecha:e.target.value};});}} />
+</div>
+            {factForm.tipo==="completa"&&(
+              <div style={{padding:"9px",background:"rgba(255,255,255,0.02)",borderRadius:7,marginBottom:8}}>
+                <div style={{fontSize:8,color:"#C9A96E",textTransform:"uppercase",marginBottom:7}}>Datos cliente</div>
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Nombre</div>
+                  <input style={ST.inp} value={factForm.clienteNombre} onChange={function(e){setFactForm(function(f){return {...f,clienteNombre:e.target.value};});}} />
+</div>
+                <div style={{marginBottom:8}}>
+                  <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>NIF</div>
+                  <input style={ST.inp} value={factForm.clienteNif} onChange={function(e){setFactForm(function(f){return {...f,clienteNif:e.target.value};});}} />
+</div>
+              </div>
+            )}
+            <div style={ST.secT}>Lineas</div>
+            {factForm.items.map(function(item,i){
+              return (
+                <div key={i} style={{padding:"7px",background:"rgba(255,255,255,0.025)",borderRadius:6,marginBottom:5,border:"1px solid rgba(255,255,255,0.05)"}}>
+                  <input value={item.desc} onChange={function(e){setFactForm(function(f){return {...f,items:f.items.map(function(x,j){return j===i?{...x,desc:e.target.value}:x;})};});}} placeholder="Descripcion" style={{...ST.inp,marginBottom:4}} />
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                    <div>
+                      <div style={{fontSize:8,color:"#5A4030",marginBottom:2}}>Cantidad</div>
+                      <input type="number" min="1" value={item.qty} onChange={function(e){setFactForm(function(f){return {...f,items:f.items.map(function(x,j){return j===i?{...x,qty:parseFloat(e.target.value)||1}:x;})};});}} style={ST.inp} />
+                    </div>
+                    <div>
+                      <div style={{fontSize:8,color:"#5A4030",marginBottom:2}}>Precio €</div>
+                      <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={function(e){setFactForm(function(f){return {...f,items:f.items.map(function(x,j){return j===i?{...x,unitPrice:parseFloat(e.target.value)||0}:x;})};});}} style={ST.inp} />
+                    </div>
+                    <div>
+                      <div style={{fontSize:8,color:"#5A4030",marginBottom:2}}>IVA</div>
+                      <select value={item.vatType} onChange={function(e){setFactForm(function(f){return {...f,items:f.items.map(function(x,j){return j===i?{...x,vatType:e.target.value}:x;})};});}} style={ST.sel}>
+                        <option value="reducido">10%</option>
+                        <option value="superreducido">4%</option>
+                        <option value="general">21%</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:4,alignItems:"center"}}>
+                    <span style={{fontSize:10,color:"#C9A96E"}}>Subtotal: {fmt(item.qty*item.unitPrice)}</span>
+                    {factForm.items.length>1&&<button onClick={function(){setFactForm(function(f){return {...f,items:f.items.filter(function(_,j){return j!==i;})};});}} style={{background:"none",border:"none",color:"#6A3020",cursor:"pointer",fontSize:13}}>x</button>}
+                  </div>
+                </div>
+              );
+            })}
+            <button onClick={function(){setFactForm(function(f){return {...f,items:[...f.items,{desc:"",qty:1,unitPrice:0,vatType:"reducido"}]};});}} style={{width:"100%",padding:"6px",fontSize:10,background:"rgba(201,169,110,0.07)",border:"1px dashed rgba(201,169,110,0.25)",borderRadius:6,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit",marginBottom:8}}>+ Añadir línea</button>
+            {previewTotals&&previewTotals.total>0&&(
+              <div style={{padding:"9px 11px",background:"rgba(201,169,110,0.08)",borderRadius:7,border:"1px solid rgba(201,169,110,0.2)",marginBottom:8}}>
+                {Object.keys(previewTotals.byVat).map(function(vt){
+                  const d=previewTotals.byVat[vt];
+                  return <div key={vt} style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:2}}><span style={{color:"#8A7060"}}>Base {IVA_LABELS[vt]}</span><span style={{color:"#C4B49A"}}>{fmt(d.base)} + {fmt(d.vat)}</span></div>;
+                })}
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:"bold",marginTop:3}}><span>TOTAL</span><span style={{color:"#C9A96E"}}>{fmt(previewTotals.total)}</span></div>
+              </div>
+            )}
+            <button onClick={emitirFactura} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:7,color:"#1A0E04",fontFamily:"Georgia,serif",fontSize:12,fontWeight:"bold",cursor:"pointer"}}>
+              Emitir factura #{String(state.business&&state.business.facturaCounter||1).padStart(6,"0")}
+            </button>
+          </div>
+        ):(
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            {(state.facturas||[]).length===0?(
+              <div style={{textAlign:"center",color:"#3A2810",padding:"30px 0",fontSize:11}}>Sin facturas aun.</div>
+            ):[...(state.facturas||[])].reverse().map(function(f){
+              const totals=f.totals||calcTotals(f.items||[]);
+              return (
+                <div key={f.id} style={{padding:"9px 11px",marginBottom:5,background:"rgba(255,255,255,0.025)",borderRadius:7,border:"1px solid rgba(255,255,255,0.06)",borderLeft:"3px solid "+(f.tipo==="completa"?"#C9A96E":"#7A9E7E")}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:11,color:"#E8DCC8",fontWeight:"bold"}}>Factura #{String(f.number||0).padStart(6,"0")}</div>
+                      <div style={{fontSize:9,color:"#5A4030",marginTop:1}}>{fmtD(f.date)} - {f.tipo==="completa"?"B2B":"B2C"}</div>
+                      {f.cliente&&f.cliente.nombre&&<div style={{fontSize:9,color:"#8A7060",marginTop:1}}>{f.cliente.nombre}</div>}
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,color:"#C9A96E",fontWeight:"bold"}}>{fmt(totals.total)}</div>
+                      <div style={{fontSize:8,color:"#5A4030"}}>IVA: {fmt(totals.totalVat)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderStock=function(){
+    const meta=ALMACEN[stockAlm];
+    const items=stockByAlm[stockAlm]||[];
+    const byCategory={};
+    items.forEach(function(i){const c=i.category||"otros";if(!byCategory[c])byCategory[c]=[];byCategory[c].push(i);});
+    const verdes=(state.inventory||[]).filter(function(i){return i.category==="cafe_verde"&&i.almacen==="tostador"&&i.quantity>0;});
+    const srcItem=stockModal==="transfer"?state.inventory.find(function(i){return i.id===stockForm.itemId;}):null;
+    const destinos=srcItem?Object.keys(ALMACEN).filter(function(a){return a!==srcItem.almacen;}):[];
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
+        {stockModal&&(
+          <div style={{position:"absolute",inset:0,zIndex:200,background:"rgba(0,0,0,0.85)",display:"flex",alignItems:"flex-end"}}>
+            <div style={{width:"100%",background:"#1A0E04",borderRadius:"14px 14px 0 0",padding:"16px",maxHeight:"85vh",overflowY:"auto"}}>
+              {stockModal==="compra"&&(
+                <div>
+                  <div style={{fontSize:12,color:"#C9A96E",fontWeight:"bold",marginBottom:12}}>Nueva compra</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Almacen destino</div>
+                    <select style={ST.sel} value={stockForm.almacen||stockAlm} onChange={function(e){setStockForm(function(f){return {...f,almacen:e.target.value};});}}>
+                      <option value="tostador">🔥 Tostador</option>
+                      <option value="tienda">🏪 Tienda</option>
+                      <option value="takeaway">☕ Take Away</option>
+                    </select>
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Nombre</div>
+                    <input style={ST.inp} value={stockForm.name||""} onChange={function(e){setStockForm(function(f){return {...f,name:e.target.value};});}} placeholder="Cafe Verde Etiopia" />
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <div style={{marginBottom:8}}>
+                      <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Cantidad</div>
+                      <input style={ST.inp} type="number" min="0" step="0.1" value={stockForm.qty||""} onChange={function(e){setStockForm(function(f){return {...f,qty:e.target.value};});}} placeholder="10" />
+</div>
+                    <div style={{marginBottom:8}}>
+                      <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Unidad</div>
+                      <select style={ST.sel} value={stockForm.unit||"kg"} onChange={function(e){setStockForm(function(f){return {...f,unit:e.target.value};});}}><option>kg</option><option>g</option><option>ud</option><option>l</option><option>cl</option></select>
+</div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <div style={{marginBottom:8}}>
+                      <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Coste/ud EUR</div>
+                      <input style={ST.inp} type="number" min="0" step="0.01" value={stockForm.cost||""} onChange={function(e){setStockForm(function(f){return {...f,cost:e.target.value};});}} placeholder="15.00" />
+</div>
+                    <div style={{marginBottom:8}}>
+                      <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Stock minimo</div>
+                      <input style={ST.inp} type="number" min="0" step="0.1" value={stockForm.minStock||""} onChange={function(e){setStockForm(function(f){return {...f,minStock:e.target.value};});}} placeholder="2" />
+</div>
+                  </div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Categoria</div>
+                    <select style={ST.sel} value={stockForm.category||"cafe_verde"} onChange={function(e){setStockForm(function(f){return {...f,category:e.target.value};});}}><option value="cafe_verde">Café Verde</option><option value="envases">Envases</option><option value="consumibles">Consumibles</option><option value="lacteos">Lácteos</option><option value="accesorios">Accesorios</option><option value="otros">Otros</option></select>
+</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Proveedor</div>
+                    <input style={ST.inp} value={stockForm.supplier||""} onChange={function(e){setStockForm(function(f){return {...f,supplier:e.target.value};});}} placeholder="Nomad Coffee" />
+</div>
+                  {stockForm.qty&&stockForm.cost&&(
+                    <div style={{padding:"8px 10px",background:"rgba(201,169,110,0.08)",borderRadius:7,marginBottom:8,fontSize:11,color:"#C9A96E"}}>
+                      Total: {fmt(parseFloat(stockForm.qty||0)*parseFloat(stockForm.cost||0))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {stockModal==="tueste"&&(
+                <div>
+                  <div style={{fontSize:12,color:"#C9A96E",fontWeight:"bold",marginBottom:12}}>Registrar tueste</div>
+                  {verdes.length===0?(
+                    <div style={{fontSize:11,color:"#FF8060",marginBottom:12}}>No hay café verde en Tostador.</div>
+                  ):(
+                    <div>
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Cafe verde</div>
+                        <select style={ST.sel} value={stockForm.verdeId||""} onChange={function(e){setStockForm(function(f){return {...f,verdeId:e.target.value};});}}><option value="">selecciona</option>{verdes.map(function(v){return <option key={v.id} value={v.id}>{v.name} ({v.quantity} {v.unit})</option>;})}</select>
+</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        <div style={{marginBottom:8}}>
+                          <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Kg verde usados</div>
+                          <input style={ST.inp} type="number" min="0" step="0.1" value={stockForm.qtyVerde||""} onChange={function(e){setStockForm(function(f){return {...f,qtyVerde:e.target.value};});}} placeholder="10" />
+</div>
+                        <div style={{marginBottom:8}}>
+                          <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Kg tostado</div>
+                          <input style={ST.inp} type="number" min="0" step="0.1" value={stockForm.qtyTostado||""} onChange={function(e){setStockForm(function(f){return {...f,qtyTostado:e.target.value};});}} placeholder="8.5" />
+</div>
+                      </div>
+                      {stockForm.qtyVerde&&stockForm.qtyTostado&&parseFloat(stockForm.qtyVerde)>0&&(
+                        <div style={{padding:"8px 10px",background:"rgba(201,169,110,0.08)",borderRadius:7,marginBottom:8,fontSize:11}}>
+                          Merma: <strong style={{color:"#C9A96E"}}>{((parseFloat(stockForm.qtyVerde)-parseFloat(stockForm.qtyTostado))/parseFloat(stockForm.qtyVerde)*100).toFixed(1)}%</strong>
+                          <span style={{color:"#5A4030",marginLeft:8,fontSize:10}}>(normal 15-20%)</span>
+                        </div>
+                      )}
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Notas</div>
+                        <input style={ST.inp} value={stockForm.notes||""} onChange={function(e){setStockForm(function(f){return {...f,notes:e.target.value};});}} placeholder="Perfil, temperatura..." />
+</div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {stockModal==="transfer"&&(
+                <div>
+                  <div style={{fontSize:12,color:"#C9A96E",fontWeight:"bold",marginBottom:12}}>Transferir stock</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Articulo</div>
+                    <select style={ST.sel} value={stockForm.itemId||""} onChange={function(e){setStockForm(function(f){return {...f,itemId:e.target.value,to:"",qty:""};});}}><option value="">selecciona</option>{(state.inventory||[]).filter(function(i){return i.quantity>0;}).map(function(i){return <option key={i.id} value={i.id}>{i.name} - {ALMACEN[i.almacen||"tostador"]&&ALMACEN[i.almacen||"tostador"].icon} ({i.quantity} {i.unit})</option>;})}</select>
+</div>
+                  {srcItem&&(
+                    <div>
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Destino</div>
+                        <select style={ST.sel} value={stockForm.to||""} onChange={function(e){setStockForm(function(f){return {...f,to:e.target.value};});}}><option value="">selecciona</option>{destinos.map(function(a){return <option key={a} value={a}>{ALMACEN[a].icon} {ALMACEN[a].label}</option>;})}</select>
+</div>
+                      <div style={{marginBottom:8}}>
+                        <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Cantidad (max "+srcItem.quantity+")</div>
+                        <input style={ST.inp} type="number" min="0.1" step="0.1" max={srcItem.quantity} value={stockForm.qty||""} onChange={function(e){setStockForm(function(f){return {...f,qty:e.target.value};});}} />
+</div>
+                    </div>
+                  )}
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Motivo</div>
+                    <input style={ST.inp} value={stockForm.reason||""} onChange={function(e){setStockForm(function(f){return {...f,reason:e.target.value};});}} placeholder="Reposicion take away" />
+</div>
+                </div>
+              )}
+              {stockModal==="ajuste"&&(
+                <div>
+                  <div style={{fontSize:12,color:"#C9A96E",fontWeight:"bold",marginBottom:12}}>Ajuste de inventario</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Articulo</div>
+                    <select style={ST.sel} value={stockForm.itemId||""} onChange={function(e){setStockForm(function(f){return {...f,itemId:e.target.value};});}}><option value="">selecciona</option>{(state.inventory||[]).map(function(i){return <option key={i.id} value={i.id}>{i.name} - {ALMACEN[i.almacen||"tostador"]&&ALMACEN[i.almacen||"tostador"].icon} ({i.quantity} {i.unit})</option>;})}</select>
+</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Ajuste (+/-)</div>
+                    <input style={ST.inp} type="number" step="0.1" value={stockForm.delta||""} onChange={function(e){setStockForm(function(f){return {...f,delta:e.target.value};});}} placeholder="-0.5 merma o +2 correccion" />
+</div>
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Motivo</div>
+                    <input style={ST.inp} value={stockForm.reason||""} onChange={function(e){setStockForm(function(f){return {...f,reason:e.target.value};});}} placeholder="merma, rotura, correccion..." />
+</div>
+                </div>
+              )}
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button onClick={function(){setStockModal(null);setStockForm({});}} style={{flex:1,padding:"10px",fontSize:11,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                <button onClick={stockModal==="compra"?doCompra:stockModal==="tueste"?doTueste:stockModal==="transfer"?doTransfer:doAjuste} style={{flex:2,padding:"10px",fontSize:11,background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:8,color:"#1A0E04",cursor:"pointer",fontFamily:"inherit",fontWeight:"bold"}}>
+                  {stockModal==="compra"?"Registrar compra":stockModal==="tueste"?"Registrar tueste":stockModal==="transfer"?"Transferir":"Aplicar ajuste"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div style={{display:"flex",borderBottom:"1px solid rgba(201,169,110,0.12)",flexShrink:0}}>
+          {Object.keys(ALMACEN).map(function(k){
+            const m=ALMACEN[k];
+            const val=stockVal[k]||0;
+            const low=(stockByAlm[k]||[]).filter(function(i){return i.minStock&&i.quantity<=i.minStock;}).length;
+            return (
+              <button key={k} onClick={function(){setStockAlm(k);}} style={{flex:1,padding:"8px 4px",background:stockAlm===k?"rgba(201,169,110,0.1)":"transparent",border:"none",borderBottom:stockAlm===k?"2px solid "+m.color:"2px solid transparent",cursor:"pointer",fontFamily:"inherit"}}>
+                <div style={{fontSize:14}}>{m.icon}</div>
+                <div style={{fontSize:9,color:stockAlm===k?m.color:"#5A4020",letterSpacing:1,textTransform:"uppercase"}}>{m.label}</div>
+                <div style={{fontSize:9,color:m.color,fontWeight:"bold"}}>{fmt(val)}</div>
+                {low>0&&<div style={{fontSize:8,color:"#FF8060"}}>⚠{low}</div>}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:5,padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.08)",flexShrink:0,flexWrap:"wrap"}}>
+          <button onClick={function(){setStockModal("compra");setStockForm({category:"cafe_verde",unit:"kg"});}} style={{padding:"6px 10px",fontSize:10,background:"rgba(201,169,110,0.1)",border:"1px solid rgba(201,169,110,0.25)",borderRadius:16,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>Compra</button>
+          <button onClick={function(){setStockModal("tueste");setStockForm({});}} style={{padding:"6px 10px",fontSize:10,background:"rgba(201,169,110,0.1)",border:"1px solid rgba(201,169,110,0.25)",borderRadius:16,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>Tueste</button>
+          <button onClick={function(){setStockModal("transfer");setStockForm({});}} style={{padding:"6px 10px",fontSize:10,background:"rgba(122,158,126,0.1)",border:"1px solid rgba(122,158,126,0.25)",borderRadius:16,color:"#7A9E7E",cursor:"pointer",fontFamily:"inherit"}}>Transferir</button>
+          <button onClick={function(){setStockModal("ajuste");setStockForm({});}} style={{padding:"6px 10px",fontSize:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:16,color:"#8A7060",cursor:"pointer",fontFamily:"inherit"}}>Ajuste</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"8px 10px"}}>
+          {Object.keys(byCategory).length===0?(
+            <div style={{textAlign:"center",color:"#3A2810",padding:"30px 0",fontSize:11}}>Sin artículos en {meta.label}. Usa los botones para anadir stock.</div>
+          ):Object.keys(byCategory).map(function(cat){
+            const catItems=byCategory[cat];
+            return (
+              <div key={cat}>
+                <div style={ST.secT}>{CAT_LABELS[cat]||cat}</div>
+                {catItems.map(function(item){
+                  const isLow=item.minStock&&item.quantity<=item.minStock;
+                  const pct=item.minStock?Math.min(100,(item.quantity/(item.minStock*2))*100):50;
+                  return (
+                    <div key={item.id} style={{...ST.card,borderLeft:"2px solid "+(isLow?"#FF8060":meta.color)}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:12,color:"#E8DCC8"}}>{item.name}</div>
+                          {item.supplier&&<div style={{fontSize:9,color:"#5A4030",marginTop:1}}>{item.supplier}</div>}
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0,marginLeft:6}}>
+                          <div style={{fontSize:12,color:isLow?"#FF8060":meta.color,fontWeight:"bold"}}>{item.quantity} {item.unit}</div>
+                          <div style={{fontSize:9,color:"#5A4030"}}>{fmt(item.unitCost)}/{item.unit}</div>
+                        </div>
+                      </div>
+                      {item.minStock&&<Bar pct={pct} color={isLow?"#FF8060":meta.color} height={3} />}
+                      {isLow&&<div style={{fontSize:9,color:"#FF8060",marginTop:2}}>Min: {item.minStock} {item.unit}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+          {(state.transfers||[]).length>0&&(
+            <div>
+              <div style={{...ST.secT,marginTop:14}}>Últimos movimientos</div>
+              {[...(state.transfers||[])].reverse().slice(0,5).map(function(t){
+                return (
+                  <div key={t.id} style={{padding:"6px 9px",marginBottom:3,background:"rgba(255,255,255,0.02)",borderRadius:6,border:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontSize:10,color:"#C4B49A"}}>{t.itemName}</div>
+                      <div style={{fontSize:9,color:"#5A4030"}}>{ALMACEN[t.from]&&ALMACEN[t.from].icon} {"->"} {ALMACEN[t.to]&&ALMACEN[t.to].icon} - {fmtD(t.date)}</div>
+                      {t.reason&&<div style={{fontSize:9,color:"#4A3820"}}>{t.reason}</div>}
+                    </div>
+                    <div style={{fontSize:11,color:"#C9A96E",fontWeight:"bold",flexShrink:0,marginLeft:8}}>{t.qty} {t.unit}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {(state.roasts||[]).length>0&&(
+            <div>
+              <div style={{...ST.secT,marginTop:14}}>Últimos tuestes</div>
+              {[...(state.roasts||[])].reverse().slice(0,5).map(function(r){
+                return (
+                  <div key={r.id} style={{padding:"6px 9px",marginBottom:3,background:"rgba(201,169,110,0.04)",borderRadius:6,border:"1px solid rgba(201,169,110,0.12)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between"}}>
+                      <div style={{fontSize:10,color:"#C4B49A"}}>{r.verdeName}</div>
+                      <div style={{fontSize:10,color:"#C9A96E",fontWeight:"bold"}}>{r.qtyVerde}kg {"->"} {r.qtyTostado}kg</div>
+                    </div>
+                    <div style={{fontSize:9,color:"#5A4030",marginTop:1}}>
+                      {fmtD(r.date)} - Merma: <span style={{color:r.merma>22?"#FF8060":"#7A9E7E"}}>{r.merma}%</span>
+                      {r.notes&&" - "+r.notes}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderFin=function(){
+    switch(finTab) {
+      case "pl": return (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:7}}>
+            <KPI label="Ingresos" value={fmt(fin.ingresos)} color="#7A9E7E" />
+            <KPI label="Gastos" value={fmt(fin.gastos)} color="#FF8060" />
+            <KPI label="Resultado" value={fmt(fin.netIncome)} color={netColor} alert={fin.netIncome<0} />
+            <KPI label="Mg. bruto" value={fin.grossMargin.toFixed(1)+"%"} alert={fin.grossMargin<40} />
+            <KPI label="EBITDA/mes" value={fmt(fin.ebitdaM)} color={fin.ebitdaM>=0?"#C9A96E":"#FF8060"} />
+            <KPI label="Burn rate" value={fmt(fin.burnRate)} color="#FF8060" />
+          </div>
+          <div style={ST.secT}>Últimas transacciones</div>
+          {[...state.transactions].reverse().slice(0,10).map(function(t){
+            return (
+              <div key={t.id} style={{...ST.card,borderLeft:"2px solid "+(t.type==="ingreso"?"#7A9E7E":"#FF8060"),padding:"5px 9px"}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:10,color:"#C4B49A",flex:1,marginRight:3}}>{t.description}</span><span style={{fontSize:10,fontWeight:"bold",color:t.type==="ingreso"?"#7A9E7E":"#FF8060",whiteSpace:"nowrap"}}>{t.type==="ingreso"?"+":"-"}{fmt(t.amount)}</span></div>
+                <div style={{fontSize:8,color:"#4A3820",marginTop:1}}>{fmtD(t.date)}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+      case "activos": return (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:7}}>
+            <KPI label="Valor libro" value={fmt(fin.totalBook)} />
+            <KPI label="Amort/ano" value={fmt(fin.annualDep)} sub={fmt(fin.annualDep/12)+"/mes"} />
+          </div>
+          {fin.assetData.length===0?(
+            <div style={{fontSize:10,color:"#3A2810",textAlign:"center",padding:"8px 0"}}>Sin activos.</div>
+          ):fin.assetData.map(function(a){
+            const dp=100-(a.bookValue/a.purchasePrice)*100;
+            return (
+              <div key={a.id} style={{...ST.card,borderLeft:"2px solid #C9A96E"}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"#E8DCC8"}}>{a.name}</span><span style={{fontSize:10,color:"#C9A96E",fontWeight:"bold"}}>{fmt(a.bookValue)}</span></div>
+                <div style={{fontSize:9,color:"#5A4030",margin:"1px 0"}}>Coste {fmt(a.purchasePrice)} - {a.depreciationYears}a</div>
+                <Bar pct={dp} color="#C9A96E" height={3} />
+              </div>
+            );
+          })}
+        </div>
+      );
+      case "prestamos": return (
+        <div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:7}}>
+            <KPI label="Deuda" value={fmt(fin.totalDebt)} color="#FF8060" />
+            <KPI label="Activos netos" value={fmt(fin.netAssets)} color={fin.netAssets>=0?"#7A9E7E":"#FF8060"} />
+          </div>
+          {fin.loanData.length===0?(
+            <div style={{fontSize:10,color:"#3A2810",textAlign:"center",padding:"8px 0"}}>Sin prestamos.</div>
+          ):fin.loanData.map(function(l){
+            const pp=((l.principal-l.remaining)/l.principal)*100;
+            return (
+              <div key={l.id} style={{...ST.card,borderLeft:"2px solid #B07D62"}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"#E8DCC8"}}>{l.name}</span><span style={{fontSize:10,color:"#FF8060",fontWeight:"bold"}}>{fmt(l.remaining)}</span></div>
+                <div style={{fontSize:9,color:"#5A4030",margin:"1px 0"}}>{l.interestRate}% - {fmt(l.monthly)}/mes - {l.monthsLeft}m</div>
+                <Bar pct={pp} color="#7A9E7E" height={3} />
+              </div>
+            );
+          })}
+        </div>
+      );
+      case "valor": return (
+        <div>
+          <div style={{background:"rgba(201,169,110,0.06)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:9,padding:"10px",marginBottom:8,textAlign:"center"}}>
+            <div style={{fontSize:8,letterSpacing:2,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Valoración estimada</div>
+            <div style={{fontSize:22,color:"#C9A96E",fontWeight:"bold"}}>{fmt(fin.valBlended)}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+            <KPI label="Activos netos" value={fmt(Math.max(0,fin.netAssets))} sub="Activos - Deuda" />
+            <KPI label="x Revenue" value={fmt(Math.max(0,fin.annualRev*0.8))} sub="x 0.8 anual" />
+            <KPI label="x EBITDA" value={fmt(fin.ebitdaA>0?fin.ebitdaA*4:0)} sub="x 4 EBITDA" />
+            <KPI label="Mg. EBITDA" value={fin.ebitdaMargin.toFixed(1)+"%"} color={fin.ebitdaMargin>=10?"#7A9E7E":"#FF8060"} />
+          </div>
+        </div>
+      );
+      case "informes": return renderInformes();
+      default: return null;
+    }
+  };
+
+  const renderChat=function(){
+    return (
+      <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
+        <div style={{flex:1,overflowY:"auto",padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
+          {msgs.map(function(m,i){
+            return (
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",gap:7}}>
+                {m.role==="assistant"&&<div style={{width:24,height:24,background:"linear-gradient(135deg,#C9A96E,#6B4E2A)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0,marginTop:3}}>☕</div>}
+                <div style={ST.bubble(m.role)}>
+                  {m.role==="assistant"?<MsgBubble text={m.text} />:<span style={{color:"#E8DCC8"}}>{m.text}</span>}
+                  {m.action&&<div style={{marginTop:5,padding:"2px 8px",fontSize:9,background:"rgba(122,158,126,0.12)",border:"1px solid rgba(122,158,126,0.25)",borderRadius:4,color:"#7A9E7E",display:"inline-block"}}>Guardado</div>}
+                </div>
+              </div>
+            );
+          })}
+          {loading&&(
+            <div style={{display:"flex",gap:7}}>
+              <div style={{width:24,height:24,background:"linear-gradient(135deg,#C9A96E,#6B4E2A)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12}}>☕</div>
+              <div style={{...ST.bubble("assistant"),display:"flex",gap:4,alignItems:"center"}}>
+                <div style={{width:5,height:5,borderRadius:"50%",background:"#C9A96E",animation:"dot 1.2s ease-in-out infinite",animationDelay:"0s"}} />
+                <div style={{width:5,height:5,borderRadius:"50%",background:"#C9A96E",animation:"dot 1.2s ease-in-out infinite",animationDelay:"0.2s"}} />
+                <div style={{width:5,height:5,borderRadius:"50%",background:"#C9A96E",animation:"dot 1.2s ease-in-out infinite",animationDelay:"0.4s"}} />
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+        <div style={{padding:"8px 10px",borderTop:"1px solid rgba(201,169,110,0.1)",background:"#0A0600",display:"flex",gap:6,alignItems:"flex-end",flexShrink:0}}>
+          <textarea value={input} onChange={function(e){setInput(e.target.value);}} onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMsg();}}} placeholder="Registra compras, activos, prestamos, pide analisis..." style={ST.ta} rows={1} disabled={loading} />
+          <button onClick={sendMsg} disabled={loading||!input.trim()} style={{width:40,height:40,background:loading||!input.trim()?"rgba(201,169,110,0.1)":"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>
+            {loading?"...":"^"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const resetGrano = function() {
+    if (!window.confirm("Esto borrara TODOS los datos. Los datos del negocio se conservan. Continuar?")) return;
+    const biz = state.business;
+    const ns = Object.assign({}, INIT_STATE, {business:biz});
+    setState(ns); save(ns);
+  };
+
+  const renderInformes=function(){
+    const now=Date.now();
+    const msMap={hoy:0,semana:7*864e5,mes:30*864e5,"3m":90*864e5,"1a":365*864e5,todo:9999*864e5};
+    const hoyStr=new Date().toISOString().slice(0,10);
+    const desdeTs=informePeriod==="hoy"?new Date(hoyStr).getTime():now-(msMap[informePeriod]||msMap["30d"]);
+    const desdeStr=new Date(desdeTs).toISOString().slice(0,10);
+    const tkFilt=(state.tickets||[]).filter(function(t){
+      if (!t.date) return false;
+      if (informePeriod==="hoy") return t.date.slice(0,10)===hoyStr;
+      return t.date.slice(0,10)>=desdeStr;
+    });
+    const txFilt=(state.transactions||[]).filter(function(t){
+      if (!t.date) return false;
+      if (informePeriod==="hoy") return t.date===hoyStr;
+      return t.date>=desdeStr;
+    });
+    // Revenue & costs
+    const revenue=txFilt.filter(function(t){return t.type==="ingreso";}).reduce(function(s,t){return s+t.amount;},0);
+    const costos=txFilt.filter(function(t){return t.type==="gasto";}).reduce(function(s,t){return s+t.amount;},0);
+    const cogs=txFilt.filter(function(t){return t.category==="compra_insumos";}).reduce(function(s,t){return s+t.amount;},0);
+    const opEx=costos-cogs;
+    const grossProfit=revenue-cogs;
+    const grossMargin=revenue>0?(grossProfit/revenue)*100:0;
+    const ebitda=grossProfit-opEx;
+    const ebitdaMargin=revenue>0?(ebitda/revenue)*100:0;
+    const resultado=revenue-costos;
+    const netMargin=revenue>0?(resultado/revenue)*100:0;
+    const tkTotal=tkFilt.length;
+    const tkMedio=tkTotal>0?tkFilt.reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0)/tkTotal:0;
+    // Product breakdown
+    const prodMap={};
+    tkFilt.forEach(function(t){
+      (t.items||[]).forEach(function(item){
+        const k=item.desc||"?";
+        if (!prodMap[k]) prodMap[k]={qty:0,revenue:0,vatType:item.vatType};
+        prodMap[k].qty+=item.qty||1;
+        prodMap[k].revenue+=((item.qty||1)*item.unitPrice);
+      });
+    });
+    const prodList=Object.keys(prodMap).map(function(k){return {name:k,qty:prodMap[k].qty,revenue:prodMap[k].revenue};}).sort(function(a,b){return b.revenue-a.revenue;});
+    const totalRevTk=prodList.reduce(function(s,p){return s+p.revenue;},0)||1;
+    // Category breakdown
+    const catMap={};
+    txFilt.filter(function(t){return t.type==="ingreso";}).forEach(function(t){
+      const c=t.category||"otros";
+      catMap[c]=(catMap[c]||0)+t.amount;
+    });
+    // Costs breakdown
+    const costCatMap={};
+    txFilt.filter(function(t){return t.type==="gasto";}).forEach(function(t){
+      const c=t.category||"otros";
+      costCatMap[c]=(costCatMap[c]||0)+t.amount;
+    });
+    // CSV export
+    const exportCSV=function(){
+      var rows=["Informe GRANO - "+informePeriod+" - "+new Date().toLocaleDateString("es-ES")];
+      rows.push("");
+      rows.push("RESUMEN");
+      rows.push("Ingresos;"+revenue.toFixed(2));
+      rows.push("COGS;"+cogs.toFixed(2));
+      rows.push("Margen bruto;"+grossProfit.toFixed(2)+";"+grossMargin.toFixed(1)+"%");
+      rows.push("Gastos operativos;"+opEx.toFixed(2));
+      rows.push("EBITDA;"+ebitda.toFixed(2)+";"+ebitdaMargin.toFixed(1)+"%");
+      rows.push("Resultado;"+resultado.toFixed(2)+";"+netMargin.toFixed(1)+"%");
+      rows.push("Tickets;"+tkTotal);
+      rows.push("Ticket medio;"+tkMedio.toFixed(2));
+      rows.push("");
+      rows.push("VENTAS POR PRODUCTO");
+      rows.push("Producto;Unidades;Ingresos;% total");
+      prodList.forEach(function(p){
+        rows.push(p.name+";"+p.qty+";"+p.revenue.toFixed(2)+";"+(p.revenue/totalRevTk*100).toFixed(1)+"%");
+      });
+      var csv=rows.join("\n");
+      var blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement("a"); a.href=url; a.download="grano_informe_"+new Date().toISOString().slice(0,10)+".csv";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    };
+    // PDF export
+    const exportPDF=function(){
+      var html="<!DOCTYPE html><html><head><meta charset='utf-8'><title>Informe GRANO</title>";
+      html+="<style>body{font-family:Georgia,serif;max-width:700px;margin:40px auto;color:#1a0e04;font-size:13px}";
+      html+="h1{color:#7A5530;border-bottom:2px solid #C9A96E;padding-bottom:8px}";
+      html+="h2{color:#5A3520;font-size:14px;margin-top:24px;border-bottom:1px solid #e0c080;padding-bottom:4px}";
+      html+="table{width:100%;border-collapse:collapse;margin:10px 0}";
+      html+="th{background:#f5e8c8;text-align:left;padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:1px}";
+      html+="td{padding:6px 10px;border-bottom:1px solid #ede0c0;font-size:12px}";
+      html+=".num{text-align:right}.bold{font-weight:bold}.sub{color:#8A6030;font-size:11px}";
+      html+="@media print{body{margin:20px}}</style></head><body>";
+      html+="<h1>Informe GRANO</h1>";
+      html+="<p class='sub'>Periodo: <strong>"+informePeriod+"</strong> &nbsp; Generado: "+new Date().toLocaleString("es-ES")+"</p>";
+      html+="<h2>Resumen financiero</h2><table>";
+      html+="<tr><th>Concepto</th><th class='num'>Importe</th><th class='num'>Margen</th></tr>";
+      html+="<tr><td>Ingresos</td><td class='num bold'>"+fmt(revenue)+"</td><td></td></tr>";
+      html+="<tr><td>COGS (coste ventas)</td><td class='num'>-"+fmt(cogs)+"</td><td></td></tr>";
+      html+="<tr><td class='bold'>Margen bruto</td><td class='num bold'>"+fmt(grossProfit)+"</td><td class='num'>"+grossMargin.toFixed(1)+"%</td></tr>";
+      html+="<tr><td>Gastos operativos</td><td class='num'>-"+fmt(opEx)+"</td><td></td></tr>";
+      html+="<tr><td class='bold'>EBITDA</td><td class='num bold'>"+fmt(ebitda)+"</td><td class='num'>"+ebitdaMargin.toFixed(1)+"%</td></tr>";
+      html+="<tr><td class='bold'>Resultado neto</td><td class='num bold'>"+fmt(resultado)+"</td><td class='num'>"+netMargin.toFixed(1)+"%</td></tr>";
+      html+="<tr><td>Tickets emitidos</td><td class='num'>"+tkTotal+"</td><td class='num sub'>Medio: "+fmt(tkMedio)+"</td></tr>";
+      html+="</table>";
+      if (prodList.length > 0) {
+        html+="<h2>Ventas por producto</h2><table>";
+        html+="<tr><th>Producto</th><th class='num'>Uds</th><th class='num'>Ingresos</th><th class='num'>% total</th></tr>";
+        prodList.forEach(function(p){
+          html+="<tr><td>"+p.name+"</td><td class='num'>"+p.qty+"</td><td class='num'>"+fmt(p.revenue)+"</td><td class='num'>"+(p.revenue/totalRevTk*100).toFixed(1)+"%</td></tr>";
+        });
+        html+="</table>";
+      }
+      html+="  <script>
+    if ("serviceWorker" in navigator && location.hostname === "cery17.github.io") {
+      window.addEventListener("load", function() {
+        navigator.serviceWorker.register("/Grano/sw.js")
+          .then(function(reg) { console.log("GRANO SW registrado:", reg.scope); })
+          .catch(function(err) { console.log("SW error:", err); });
+      });
+    }
+  </script>
+</body></html>";
+      var w=window.open("","_blank");
+      w.document.write(html);
+      w.document.close();
+      w.print();
+    };
+    const PERIODS=[["hoy","Hoy"],["semana","7d"],["mes","30d"],["3m","3m"],["1a","1a"],["todo","Todo"]];
+    const mColor=function(v){return v>=0?"#7A9E7E":"#FF8060";};
+
+    // Category labels
+    const ING_CATS={venta_take_away:"Take Away",venta_tienda:"Cafe en Grano",venta_cafe_grano:"Cafe en Grano",otros_ingresos:"Otros ingresos"};
+    const GASTO_CATS={compra_insumos:"Compra mercancias",alquiler:"Alquiler",nominas:"Nominas",suministros:"Suministros",marketing:"Marketing",otros_gastos:"Otros gastos"};
+
+    // Snapshot data
+    const ingByCat={};
+    txFilt.filter(function(t){return t.type==="ingreso";}).forEach(function(t){
+      var c=ING_CATS[t.category]||t.category||"Otros";
+      ingByCat[c]=(ingByCat[c]||0)+t.amount;
+    });
+    // Add ticket-level breakdown for take away
+    var tkAwayTotal=tkFilt.reduce(function(s,t){return s+(t.totals&&t.totals.total||0);},0);
+    // Product sub-breakdown inside Take Away
+    var taCats={};
+    tkFilt.forEach(function(t){
+      (t.items||[]).forEach(function(item){
+        var vatT=item.vatType||"reducido";
+        var grp=vatT==="superreducido"?"Cafe en grano":"Cafes y bebidas";
+        taCats[grp]=(taCats[grp]||0)+(item.qty||1)*item.unitPrice;
+      });
+    });
+    var gastoByCat={};
+    txFilt.filter(function(t){return t.type==="gasto";}).forEach(function(t){
+      var c=GASTO_CATS[t.category]||t.category||"Otros gastos";
+      gastoByCat[c]=(gastoByCat[c]||0)+t.amount;
+    });
+    var totalIng=Object.values(ingByCat).reduce(function(s,v){return s+v;},0)||1;
+    var totalGasto=Object.values(gastoByCat).reduce(function(s,v){return s+v;},0)||1;
+
+    var renderSnapshot=function(){
+      var maxBar=Math.max(revenue,costos,1);
+      var ingColors=["#7A9E7E","#5A8E6E","#3A7E5E","#9ABE9E"];
+      var gastoColors=["#C9A96E","#B08050","#A07040","#D0B080","#906030","#806020"];
+      return (
+        <div>
+          <div style={{padding:"12px",background:"rgba(255,255,255,0.02)",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",marginBottom:10}}>
+            <div style={{fontSize:8,letterSpacing:2,color:"#6A5535",textTransform:"uppercase",marginBottom:10}}>Flujo del periodo</div>
+            <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:8,height:60}}>
+              <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{width:"100%",height:(revenue/maxBar*56)+"px",background:"linear-gradient(180deg,#7A9E7E,#4A6E4E)",borderRadius:"4px 4px 0 0",minHeight:4}} />
+                <div style={{fontSize:8,color:"#7A9E7E"}}>Ingresos</div>
+                <div style={{fontSize:10,fontWeight:"bold",color:"#7A9E7E"}}>{fmt(revenue)}</div>
+              </div>
+              <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{width:"100%",height:(costos/maxBar*56)+"px",background:"linear-gradient(180deg,#C9A96E,#7A5530)",borderRadius:"4px 4px 0 0",minHeight:4}} />
+                <div style={{fontSize:8,color:"#C9A96E"}}>Gastos</div>
+                <div style={{fontSize:10,fontWeight:"bold",color:"#C9A96E"}}>{fmt(costos)}</div>
+              </div>
+              <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                <div style={{width:"100%",height:(Math.abs(resultado)/maxBar*56)+"px",background:"linear-gradient(180deg,"+(resultado>=0?"#7A9E7E,#4A6E4E":"#FF8060,#C04030")+")",borderRadius:"4px 4px 0 0",minHeight:4}} />
+                <div style={{fontSize:8,color:resultado>=0?"#7A9E7E":"#FF8060"}}>Resultado</div>
+                <div style={{fontSize:10,fontWeight:"bold",color:resultado>=0?"#7A9E7E":"#FF8060"}}>{fmt(resultado)}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <div style={{flex:1,padding:"6px",background:"rgba(122,158,126,0.08)",borderRadius:6,textAlign:"center"}}>
+                <div style={{fontSize:8,color:"#5A4030",marginBottom:1}}>Margen bruto</div>
+                <div style={{fontSize:11,fontWeight:"bold",color:grossMargin>=40?"#7A9E7E":"#FF8060"}}>{grossMargin.toFixed(1)}%</div>
+              </div>
+              <div style={{flex:1,padding:"6px",background:"rgba(201,169,110,0.08)",borderRadius:6,textAlign:"center"}}>
+                <div style={{fontSize:8,color:"#5A4030",marginBottom:1}}>EBITDA</div>
+                <div style={{fontSize:11,fontWeight:"bold",color:mColor(ebitdaMargin)}}>{ebitdaMargin.toFixed(1)}%</div>
+              </div>
+              <div style={{flex:1,padding:"6px",background:"rgba(255,255,255,0.03)",borderRadius:6,textAlign:"center"}}>
+                <div style={{fontSize:8,color:"#5A4030",marginBottom:1}}>Margen neto</div>
+                <div style={{fontSize:11,fontWeight:"bold",color:mColor(netMargin)}}>{netMargin.toFixed(1)}%</div>
+              </div>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <div style={{padding:"10px",background:"rgba(122,158,126,0.05)",borderRadius:9,border:"1px solid rgba(122,158,126,0.15)"}}>
+              <div style={{fontSize:8,letterSpacing:2,color:"#4A7E5E",textTransform:"uppercase",marginBottom:8}}>Ingresos {fmt(revenue)}</div>
+              {Object.keys(ingByCat).sort(function(a,b){return ingByCat[b]-ingByCat[a];}).map(function(cat,ci){
+                var pct=ingByCat[cat]/totalIng*100;
+                var isTA=cat==="Take Away"||cat==="venta_take_away";
+                return (
+                  <div key={cat} style={{marginBottom:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}>
+                      <span style={{color:"#C4B49A",flex:1}}>{cat}</span>
+                      <span style={{color:ingColors[ci%ingColors.length],flexShrink:0}}>{pct.toFixed(0)}%</span>
+                    </div>
+                    <div style={{background:"rgba(255,255,255,0.05)",borderRadius:2,height:4,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:pct+"%",background:ingColors[ci%ingColors.length],borderRadius:2}} />
+                    </div>
+                    <div style={{fontSize:9,color:"#5A4030",marginTop:1}}>{fmt(ingByCat[cat])}</div>
+                    {isTA&&Object.keys(taCats).length>0&&(
+                      <div style={{marginLeft:8,marginTop:3}}>
+                        {Object.keys(taCats).map(function(sub){
+                          var subPct=taCats[sub]/(tkAwayTotal||1)*100;
+                          return (
+                            <div key={sub} style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"#5A6050",marginBottom:1}}>
+                              <span>- {sub}</span><span>{fmt(taCats[sub])} ({subPct.toFixed(0)}%)</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {Object.keys(ingByCat).length===0&&<div style={{fontSize:9,color:"#3A2810"}}>Sin ingresos</div>}
+            </div>
+            <div style={{padding:"10px",background:"rgba(201,169,110,0.04)",borderRadius:9,border:"1px solid rgba(201,169,110,0.12)"}}>
+              <div style={{fontSize:8,letterSpacing:2,color:"#7A5530",textTransform:"uppercase",marginBottom:8}}>Gastos {fmt(costos)}</div>
+              {Object.keys(gastoByCat).sort(function(a,b){return gastoByCat[b]-gastoByCat[a];}).map(function(cat,ci){
+                var pct=gastoByCat[cat]/totalGasto*100;
+                return (
+                  <div key={cat} style={{marginBottom:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:2}}>
+                      <span style={{color:"#C4B49A",flex:1}}>{cat}</span>
+                      <span style={{color:gastoColors[ci%gastoColors.length],flexShrink:0}}>{pct.toFixed(0)}%</span>
+                    </div>
+                    <div style={{background:"rgba(255,255,255,0.05)",borderRadius:2,height:4,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:pct+"%",background:gastoColors[ci%gastoColors.length],borderRadius:2}} />
+                    </div>
+                    <div style={{fontSize:9,color:"#5A4030",marginTop:1}}>{fmt(gastoByCat[cat])}</div>
+                  </div>
+                );
+              })}
+              {Object.keys(gastoByCat).length===0&&<div style={{fontSize:9,color:"#3A2810"}}>Sin gastos</div>}
+            </div>
+          </div>
+          {tkTotal>0&&(
+            <div style={{padding:"10px",background:"rgba(255,255,255,0.02)",borderRadius:9,border:"1px solid rgba(255,255,255,0.05)"}}>
+              <div style={{fontSize:8,letterSpacing:2,color:"#6A5535",textTransform:"uppercase",marginBottom:7}}>Top productos</div>
+              {prodList.slice(0,5).map(function(p,i){
+                var pct=p.revenue/(prodList[0]&&prodList[0].revenue||1)*100;
+                return (
+                  <div key={p.name} style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                    <span style={{fontSize:9,color:"#5A4030",minWidth:12}}>{i+1}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,marginBottom:1}}>
+                        <span style={{color:"#C4B49A",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"70%"}}>{p.name}</span>
+                        <span style={{color:"#C9A96E",flexShrink:0}}>{fmt(p.revenue)}</span>
+                      </div>
+                      <div style={{background:"rgba(255,255,255,0.05)",borderRadius:2,height:3}}>
+                        <div style={{height:"100%",width:pct+"%",background:"rgba(201,169,110,0.6)",borderRadius:2}} />
+                      </div>
+                    </div>
+                    <span style={{fontSize:8,color:"#5A4030",flexShrink:0}}>{p.qty}ud</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {revenue===0&&costos===0&&(
+            <div style={{textAlign:"center",color:"#3A2810",padding:"20px 0",fontSize:11}}>Sin datos en este periodo.</div>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div>
+        <div style={{display:"flex",marginBottom:8,borderRadius:6,overflow:"hidden",border:"1px solid rgba(201,169,110,0.15)"}}>
+          {PERIODS.map(function(p){
+            return <button key={p[0]} onClick={function(){setInformePeriod(p[0]);}} style={{flex:1,padding:"7px 0",fontSize:9,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:informePeriod===p[0]?"#130E07":"#5A4020",background:informePeriod===p[0]?"#C9A96E":"transparent",border:"none",fontFamily:"inherit"}}>{p[1]}</button>;
+          })}
+        </div>
+        <div style={{display:"flex",marginBottom:8,borderRadius:6,overflow:"hidden",border:"1px solid rgba(201,169,110,0.1)"}}>
+          {[["snapshot","Snapshot"],["margenes","Margenes"],["productos","Productos"]].map(function(t){
+            return <button key={t[0]} onClick={function(){setInformeTab(t[0]);}} style={{flex:1,padding:"6px 0",fontSize:9,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:informeTab===t[0]?"#130E07":"#5A4020",background:informeTab===t[0]?"rgba(201,169,110,0.7)":"transparent",border:"none",fontFamily:"inherit"}}>{t[1]}</button>;
+          })}
+        </div>
+        <div style={{display:"flex",gap:5,marginBottom:8}}>
+          <button onClick={exportCSV} style={{flex:1,padding:"7px",fontSize:10,background:"rgba(122,158,126,0.1)",border:"1px solid rgba(122,158,126,0.25)",borderRadius:7,color:"#7A9E7E",cursor:"pointer",fontFamily:"inherit"}}>CSV</button>
+          <button onClick={exportPDF} style={{flex:1,padding:"7px",fontSize:10,background:"rgba(201,169,110,0.1)",border:"1px solid rgba(201,169,110,0.25)",borderRadius:7,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>PDF</button>
+        </div>
+        {informeTab==="snapshot"&&renderSnapshot()}
+        {informeTab==="margenes"&&(
+          <div>
+            <div style={ST.secT}>Composicion de margenes</div>
+            <div style={{padding:"10px",background:"rgba(255,255,255,0.025)",borderRadius:8,border:"1px solid rgba(255,255,255,0.06)",marginBottom:8}}>
+              {[
+                ["Ingresos",revenue,null,null],
+                ["- COGS",-cogs,null,null],
+                ["= Margen bruto",grossProfit,grossMargin,grossMargin>=50?"#7A9E7E":"#C9A96E"],
+                ["- Gastos op.",-opEx,null,null],
+                ["= EBITDA",ebitda,ebitdaMargin,mColor(ebitdaMargin)],
+                ["= Resultado neto",resultado,netMargin,mColor(netMargin)],
+              ].map(function(row,i){
+                var isTotal=row[0].startsWith("=");
+                return (
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                    <span style={{fontSize:10,color:isTotal?"#E8DCC8":"#8A7060"}}>{row[0]}</span>
+                    <div style={{textAlign:"right"}}>
+                      <span style={{fontSize:11,fontWeight:isTotal?"bold":"normal",color:row[3]||(row[1]>=0?"#E8DCC8":"#FF8060")}}>{row[1]>=0?"+":""}{fmt(row[1])}</span>
+                      {row[2]!==null&&<span style={{fontSize:9,color:row[3]||"#6A5535",marginLeft:5}}>{row[2].toFixed(1)}%</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+              <KPI label="Tickets" value={tkTotal} sub={"Medio "+fmt(tkMedio)} />
+              <KPI label="Ingresos" value={fmt(revenue)} color="#7A9E7E" />
+            </div>
+          </div>
+        )}
+        {informeTab==="productos"&&(
+          <div>
+            {prodList.length===0?(
+              <div style={{textAlign:"center",color:"#3A2810",padding:"20px 0",fontSize:11}}>Sin ventas en el periodo.</div>
+            ):prodList.map(function(p,i){
+              var pct=p.revenue/totalRevTk*100;
+              return (
+                <div key={p.name} style={{marginBottom:7}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:2}}>
+                    <span style={{color:i===0?"#C9A96E":"#C4B49A",flex:1,marginRight:4}}>{i===0?"#1 ":""}{p.name}</span>
+                    <span style={{color:"#C9A96E",flexShrink:0}}>{fmt(p.revenue)}</span>
+                    <span style={{color:"#6A5535",marginLeft:6,flexShrink:0}}>{p.qty}ud</span>
+                  </div>
+                  <div style={{background:"rgba(255,255,255,0.06)",borderRadius:3,height:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:pct+"%",background:i===0?"#C9A96E":"rgba(201,169,110,0.4)",borderRadius:3}} />
+                  </div>
+                  <div style={{fontSize:8,color:"#5A4030",marginTop:1}}>{pct.toFixed(1)}% del total</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderCRM=function(){
+    var clients=state.clients||[];
+    var coupons=state.coupons||[];
+    var filtered=crmSearch.trim()?clients.filter(function(c){return c.name.toLowerCase().includes(crmSearch.toLowerCase())||( c.phone&&c.phone.includes(crmSearch));}) :clients;
+
+    var saveClient=async function(c){
+      var exists=clients.findIndex(function(x){return x.id===c.id;});
+      var updated=exists>=0?clients.map(function(x){return x.id===c.id?c:x;}):[ ...clients,c];
+      var ns={...state,clients:updated}; setState(ns); await save(ns);
+    };
+    var deleteClient=async function(id){
+      var ns={...state,clients:clients.filter(function(c){return c.id!==id;})}; setState(ns); await save(ns);
+    };
+    var saveCoupon=async function(c){
+      var exists=coupons.findIndex(function(x){return x.id===c.id;});
+      var updated=exists>=0?coupons.map(function(x){return x.id===c.id?c:x;}):[...coupons,c];
+      var ns={...state,coupons:updated}; setState(ns); await save(ns);
+    };
+    var deleteCoupon=async function(id){
+      var ns={...state,coupons:coupons.filter(function(c){return c.id!==id;})}; setState(ns); await save(ns);
+    };
+
+    if (crmView==="client"&&crmSel) {
+      var c=crmSel;
+      var tier=getTier(c.totalSpent||0,c.tierOverride);
+      var clientTickets=(state.tickets||[]).filter(function(t){return t.clientId===c.id;}).reverse();
+      return (
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{display:"flex",gap:6,padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0,alignItems:"center"}}>
+            <button onClick={function(){setCrmView("list");setCrmSel(null);}} style={{padding:"5px 10px",fontSize:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Volver</button>
+            <span style={{fontSize:12,color:"#C9A96E",fontWeight:"bold",flex:1}}>{c.name}</span>
+            <span style={{padding:"3px 8px",borderRadius:10,background:"rgba("+( tier.id==="vip"?"122,158,126":tier.id==="regular"?"201,169,110":"138,158,174")+",0.2)",fontSize:9,color:tier.color,fontWeight:"bold"}}>{tier.label}</span>
+            <button onClick={function(){setCrmView("editclient");setCrmForm({...c});}} style={{padding:"5px 10px",fontSize:10,background:"rgba(201,169,110,0.1)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:6,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>Editar</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
+              <KPI label="Gasto total" value={fmt(c.totalSpent||0)} color={tier.color} />
+              <KPI label="Visitas" value={c.visits||0} />
+              <KPI label="Ultima visita" value={c.lastVisit||"-"} color="#C4B49A" />
+            </div>
+            {c.phone&&<div style={{fontSize:10,color:"#C4B49A",marginBottom:4}}>Tel: {c.phone}</div>}
+            {c.email&&<div style={{fontSize:10,color:"#C4B49A",marginBottom:4}}>Email: {c.email}</div>}
+            {c.category&&<div style={{fontSize:9,padding:"2px 8px",background:"rgba(201,169,110,0.1)",borderRadius:8,display:"inline-block",color:"#C9A96E",marginBottom:6}}>{c.category}</div>}
+            {c.notes&&<div style={{fontSize:10,color:"#8A7060",fontStyle:"italic",marginBottom:8,padding:"7px",background:"rgba(255,255,255,0.02)",borderRadius:6,border:"1px solid rgba(255,255,255,0.05)"}}>{c.notes}</div>}
+            <div style={{marginBottom:5}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Tier override</div>
+              <div style={{display:"flex",gap:4}}>
+                <button onClick={async function(){await saveClient({...c,tierOverride:null});setCrmSel({...c,tierOverride:null});}} style={{flex:1,padding:"5px",fontSize:9,border:"1px solid "+(c.tierOverride===null?"#C9A96E":"rgba(201,169,110,0.15)"),background:c.tierOverride===null?"rgba(201,169,110,0.15)":"transparent",color:c.tierOverride===null?"#C9A96E":"#5A4030",cursor:"pointer",borderRadius:5,fontFamily:"inherit"}}>Auto</button>
+                {TIERS.map(function(t){
+                  return <button key={t.id} onClick={async function(){await saveClient({...c,tierOverride:t.id});setCrmSel({...c,tierOverride:t.id});}} style={{flex:1,padding:"5px",fontSize:9,border:"1px solid "+(c.tierOverride===t.id?t.color:"rgba(201,169,110,0.15)"),background:c.tierOverride===t.id?"rgba(201,169,110,0.1)":"transparent",color:c.tierOverride===t.id?t.color:"#5A4030",cursor:"pointer",borderRadius:5,fontFamily:"inherit"}}>{t.label}</button>;
+                })}
+              </div>
+            </div>
+            {clientTickets.length>0&&(
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:8,letterSpacing:2,color:"#5A4020",textTransform:"uppercase",margin:"8px 0 5px"}}>Historial ({clientTickets.length})</div>
+                {clientTickets.slice(0,8).map(function(t){
+                  return (
+                    <div key={t.id} style={{display:"flex",justifyContent:"space-between",padding:"5px 8px",marginBottom:3,background:"rgba(255,255,255,0.02)",borderRadius:6,border:"1px solid rgba(255,255,255,0.04)"}}>
+                      <div style={{fontSize:9,color:"#C4B49A"}}>#{String(t.number||0).padStart(6,"0")} <span style={{color:"#5A4030"}}>{t.date&&t.date.slice(0,10)}</span></div>
+                      <div style={{fontSize:10,color:"#C9A96E",fontWeight:"bold"}}>{fmt(t.totals&&t.totals.total||0)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (crmView==="editclient") {
+      var isNew=!crmForm.id;
+      return (
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{display:"flex",gap:6,padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0,alignItems:"center"}}>
+            <button onClick={function(){setCrmView(isNew?"list":"client");}} style={{padding:"5px 10px",fontSize:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+            <span style={{fontSize:12,color:"#C9A96E",fontWeight:"bold"}}>{isNew?"Nuevo cliente":"Editar cliente"}</span>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            {[["name","Nombre *"],["phone","Telefono"],["email","Email"],["category","Categoria"],["notes","Notas"]].map(function(f){
+              return (
+                <div key={f[0]} style={{marginBottom:8}}>
+                  <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>{f[1]}</div>
+                  <input style={ST.inp} value={crmForm[f[0]]||""} onChange={function(e){var v=e.target.value; setCrmForm(function(prev){var n={}; Object.keys(prev).forEach(function(k){n[k]=prev[k];}); n[f[0]]=v; return n;});}} />
+                </div>
+              );
+            })}
+            <button onClick={async function(){
+              if (!crmForm.name) return alert("El nombre es obligatorio.");
+              var client={...crmForm, id:crmForm.id||gid("cli"), totalSpent:crmForm.totalSpent||0, visits:crmForm.visits||0, lastVisit:crmForm.lastVisit||null, createdAt:crmForm.createdAt||new Date().toISOString()};
+              await saveClient(client);
+              setCrmSel(client); setCrmView("client"); setCrmForm({});
+            }} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:8,color:"#1A0E04",fontFamily:"Georgia,serif",fontSize:12,fontWeight:"bold",cursor:"pointer"}}>
+              {isNew?"Crear cliente":"Guardar cambios"}
+            </button>
+            {!isNew&&(
+              <button onClick={async function(){if(window.confirm("Eliminar cliente?")){ await deleteClient(crmForm.id); setCrmView("list"); setCrmForm({}); }}} style={{width:"100%",marginTop:8,padding:"9px",background:"rgba(200,40,20,0.08)",border:"1px solid rgba(200,40,20,0.2)",borderRadius:8,color:"#FF6050",cursor:"pointer",fontFamily:"inherit",fontSize:11}}>
+                Eliminar cliente
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (crmView==="coupon"||crmView==="editcoupon") {
+      var isNewC=!couponForm.id;
+      return (
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{display:"flex",gap:6,padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0,alignItems:"center"}}>
+            <button onClick={function(){setCrmView("list");}} style={{padding:"5px 10px",fontSize:10,background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#C4B49A",cursor:"pointer",fontFamily:"inherit"}}>Volver</button>
+            <span style={{fontSize:12,color:"#C9A96E",fontWeight:"bold"}}>{isNewC?"Nuevo cupon":"Editar cupon"}</span>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Codigo *</div>
+              <input style={{...ST.inp,letterSpacing:2,textTransform:"uppercase"}} value={couponForm.code||""} onChange={function(e){var v=e.target.value.toUpperCase().replace(/\s/g,""); setCouponForm(function(p){return {...p,code:v};});}} placeholder="VERANO10" />
+            </div>
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Descripcion</div>
+              <input style={ST.inp} value={couponForm.description||""} onChange={function(e){var v=e.target.value; setCouponForm(function(p){return {...p,description:v};});}} placeholder="Descuento verano" />
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Tipo</div>
+                <select style={ST.sel} value={couponForm.type||"percent"} onChange={function(e){var v=e.target.value; setCouponForm(function(p){return {...p,type:v};});}}>
+                  <option value="percent">% porcentaje</option>
+                  <option value="fixed">EUR fijo</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Valor</div>
+                <input style={ST.inp} type="number" min="0" step="0.5" value={couponForm.value||""} onChange={function(e){var v=e.target.value; setCouponForm(function(p){return {...p,value:parseFloat(v)||0};});}} placeholder="10" />
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+              <div>
+                <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Aplica sobre</div>
+                <select style={ST.sel} value={couponForm.applyTo||"total"} onChange={function(e){var v=e.target.value; setCouponForm(function(p){return {...p,applyTo:v,productNames:v==="total"?[]:p.productNames||[]};});}}>
+                  <option value="total">Total ticket</option>
+                  <option value="products">Producto especifico</option>
+                </select>
+              </div>
+              <div>
+                <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Usos max (0=ilimitado)</div>
+                <input style={ST.inp} type="number" min="0" value={couponForm.maxUses||""} onChange={function(e){var v=e.target.value; setCouponForm(function(p){return {...p,maxUses:parseInt(v)||null};});}} placeholder="0" />
+              </div>
+            </div>
+            {couponForm.applyTo==="products"&&(
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Nombre del producto (busqueda parcial)</div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:5}}>
+                  {(couponForm.productNames||[]).map(function(n){
+                    return (
+                      <div key={n} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",background:"rgba(201,169,110,0.15)",borderRadius:12,border:"1px solid rgba(201,169,110,0.3)"}}>
+                        <span style={{fontSize:10,color:"#C9A96E"}}>{n}</span>
+                        <button onClick={function(){setCouponForm(function(p){return {...p,productNames:(p.productNames||[]).filter(function(x){return x!==n;})};});}} style={{background:"none",border:"none",color:"#8A5030",cursor:"pointer",fontSize:11,padding:0,lineHeight:1}}>x</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex",gap:5}}>
+                  <input id="prod-name-input" style={{...ST.inp,flex:1}} placeholder="Ej: Espresso especialidad" onKeyDown={function(e){
+                    if (e.key==="Enter") {
+                      var v=e.target.value.trim();
+                      if (v) { setCouponForm(function(p){return {...p,productNames:[...(p.productNames||[]),v]};}); e.target.value=""; }
+                    }
+                  }} />
+                  <button onClick={function(){
+                    var inp=document.getElementById("prod-name-input");
+                    var v=inp&&inp.value.trim();
+                    if (v) { setCouponForm(function(p){return {...p,productNames:[...(p.productNames||[]),v]};}); if(inp) inp.value=""; }
+                  }} style={{padding:"7px 10px",background:"rgba(201,169,110,0.1)",border:"1px solid rgba(201,169,110,0.25)",borderRadius:7,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit",fontSize:10}}>+</button>
+                </div>
+                <div style={{fontSize:9,color:"#5A4030",marginTop:4}}>El descuento aplica solo a los items del ticket que contengan este texto. Pulsa Enter o + para anadir.</div>
+                <div style={{marginTop:6}}>
+                  <div style={{fontSize:8,color:"#5A4030",marginBottom:4}}>Acceso rapido:</div>
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    {["Espresso especialidad","Cafe de la casa","Americano","Capucino","Capu-Thai","Red Espresso","Filtro Manual","Aeropress","Cookie","Bolsa cafe"].map(function(prod){
+                      var already=(couponForm.productNames||[]).includes(prod);
+                      return (
+                        <button key={prod} onClick={function(){
+                          if (!already) setCouponForm(function(p){return {...p,productNames:[...(p.productNames||[]),prod]};});
+                        }} style={{padding:"3px 7px",fontSize:8,borderRadius:10,border:"1px solid "+(already?"rgba(201,169,110,0.5)":"rgba(201,169,110,0.15)"),background:already?"rgba(201,169,110,0.15)":"transparent",color:already?"#C9A96E":"#5A4030",cursor:already?"default":"pointer",fontFamily:"inherit"}}>{prod}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:3}}>Caduca (dejar vacio = no caduca)</div>
+              <input style={ST.inp} type="date" value={couponForm.expiresAt||""} onChange={function(e){var v=e.target.value; setCouponForm(function(p){return {...p,expiresAt:v||null};});}} />
+            </div>
+            <button onClick={async function(){
+              if (!couponForm.code) return alert("El codigo es obligatorio.");
+              var dup=(state.coupons||[]).find(function(c){return c.code===couponForm.code&&c.id!==couponForm.id;});
+              if (dup) return alert("Ya existe un cupon con ese codigo.");
+              var cup={...couponForm, id:couponForm.id||gid("cup"), usedCount:couponForm.usedCount||0, active:true};
+              await saveCoupon(cup); setCrmView("list"); setCouponForm({});
+            }} style={{width:"100%",padding:"11px",background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:8,color:"#1A0E04",fontFamily:"Georgia,serif",fontSize:12,fontWeight:"bold",cursor:"pointer"}}>
+              {isNewC?"Crear cupon":"Guardar cupon"}
+            </button>
+            {!isNewC&&(
+              <button onClick={async function(){if(window.confirm("Eliminar cupon?")){ await deleteCoupon(couponForm.id); setCrmView("list"); setCouponForm({}); }}} style={{width:"100%",marginTop:8,padding:"9px",background:"rgba(200,40,20,0.08)",border:"1px solid rgba(200,40,20,0.2)",borderRadius:8,color:"#FF6050",cursor:"pointer",fontFamily:"inherit",fontSize:11}}>
+                Eliminar cupon
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Main list view
+    var tierCounts={nuevo:0,regular:0,vip:0};
+    clients.forEach(function(c){var t=getTier(c.totalSpent||0,c.tierOverride); tierCounts[t.id]=(tierCounts[t.id]||0)+1;});
+    return (
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{display:"flex",borderBottom:"1px solid rgba(201,169,110,0.1)",flexShrink:0}}>
+          <button onClick={function(){setCrmTab("clientes");}} style={{flex:1,padding:"9px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:crmTab==="clientes"?"#C9A96E":"#5A4020",background:"none",border:"none",borderBottom:crmTab==="clientes"?"2px solid #C9A96E":"2px solid transparent",fontFamily:"inherit"}}>Clientes ({clients.length})</button>
+          <button onClick={function(){setCrmTab("cupones");}} style={{flex:1,padding:"9px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:crmTab==="cupones"?"#C9A96E":"#5A4020",background:"none",border:"none",borderBottom:crmTab==="cupones"?"2px solid #C9A96E":"2px solid transparent",fontFamily:"inherit"}}>Cupones ({coupons.length})</button>
+          <button onClick={function(){setCrmTab("tiers");}} style={{flex:1,padding:"9px 0",fontSize:10,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:crmTab==="tiers"?"#C9A96E":"#5A4020",background:"none",border:"none",borderBottom:crmTab==="tiers"?"2px solid #C9A96E":"2px solid transparent",fontFamily:"inherit"}}>Tiers</button>
+        </div>
+        {crmTab==="clientes"&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.08)",flexShrink:0,display:"flex",gap:6}}>
+              <input value={crmSearch} onChange={function(e){setCrmSearch(e.target.value);}} placeholder="Buscar cliente..." style={{...ST.inp,flex:1}} />
+              <button onClick={function(){setCrmView("editclient");setCrmForm({});}} style={{padding:"7px 11px",background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:7,color:"#1A0E04",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:10,fontWeight:"bold"}}>+ Nuevo</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"8px 10px"}}>
+              {filtered.length===0?(
+                <div style={{textAlign:"center",color:"#3A2810",padding:"30px 0",fontSize:11}}>{crmSearch?"Sin resultados.":"Sin clientes aun. Crea el primero."}</div>
+              ):filtered.sort(function(a,b){return (b.totalSpent||0)-(a.totalSpent||0);}).map(function(c){
+                var tier=getTier(c.totalSpent||0,c.tierOverride);
+                return (
+                  <div key={c.id} onClick={function(){setCrmSel(c);setCrmView("client");}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",marginBottom:4,background:"rgba(255,255,255,0.025)",borderRadius:8,border:"1px solid rgba(255,255,255,0.05)",borderLeft:"3px solid "+tier.color,cursor:"pointer"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,color:"#E8DCC8",fontWeight:"bold"}}>{c.name}</div>
+                      <div style={{fontSize:9,color:"#5A4030"}}>{c.visits||0} visitas{c.lastVisit?" - ultima: "+c.lastVisit:""}</div>
+                      {c.category&&<div style={{fontSize:8,color:"#6A5535",fontStyle:"italic"}}>{c.category}</div>}
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:12,color:tier.color,fontWeight:"bold"}}>{fmt(c.totalSpent||0)}</div>
+                      <div style={{fontSize:8,color:tier.color}}>{tier.label}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {crmTab==="cupones"&&(
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"8px 10px",borderBottom:"1px solid rgba(201,169,110,0.08)",flexShrink:0,textAlign:"right"}}>
+              <button onClick={function(){setCrmView("coupon");setCouponForm({type:"percent",applyTo:"total"});}} style={{padding:"7px 11px",background:"linear-gradient(135deg,#C9A96E,#7A5530)",border:"none",borderRadius:7,color:"#1A0E04",cursor:"pointer",fontFamily:"Georgia,serif",fontSize:10,fontWeight:"bold"}}>+ Nuevo cupon</button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"8px 10px"}}>
+              {coupons.length===0?(
+                <div style={{textAlign:"center",color:"#3A2810",padding:"30px 0",fontSize:11}}>Sin cupones. Crea el primero.</div>
+              ):coupons.map(function(c){
+                return (
+                  <div key={c.id} onClick={function(){setCrmView("editcoupon");setCouponForm({...c});}} style={{padding:"9px 11px",marginBottom:5,background:"rgba(255,255,255,0.025)",borderRadius:8,border:"1px solid rgba(255,255,255,0.05)",borderLeft:"3px solid "+(c.active?"#C9A96E":"#4A3820"),cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div>
+                        <div style={{fontSize:12,color:c.active?"#C9A96E":"#5A4030",fontWeight:"bold",letterSpacing:1}}>{c.code}</div>
+                        <div style={{fontSize:9,color:"#6A5535",marginTop:1}}>{c.description||""}{c.applyTo==="products"&&c.productNames&&c.productNames.length>0?" - Solo: "+c.productNames.join(", "):""}</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div style={{fontSize:12,color:"#E8DCC8",fontWeight:"bold"}}>{c.type==="percent"?c.value+"%":fmt(c.value)}</div>
+                        <div style={{fontSize:8,color:"#5A4030"}}>{c.usedCount||0}/{c.maxUses||"inf"} usos</div>
+                      </div>
+                    </div>
+                    {!c.active&&<div style={{fontSize:8,color:"#FF8060",marginTop:3}}>Agotado o inactivo</div>}
+                    {c.expiresAt&&<div style={{fontSize:8,color:"#6A5535",marginTop:2}}>Caduca: {c.expiresAt}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {crmTab==="tiers"&&(
+          <div style={{flex:1,overflowY:"auto",padding:"10px"}}>
+            {TIERS.map(function(t){
+              return (
+                <div key={t.id} style={{padding:"12px",marginBottom:8,background:"rgba(255,255,255,0.025)",borderRadius:9,border:"1px solid rgba(255,255,255,0.06)",borderLeft:"4px solid "+t.color}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <span style={{fontSize:13,color:t.color,fontWeight:"bold"}}>{t.label}</span>
+                    <span style={{fontSize:20,padding:"4px 10px",background:"rgba(255,255,255,0.05)",borderRadius:16,color:t.color,fontWeight:"bold"}}>{tierCounts[t.id]||0}</span>
+                  </div>
+                  <div style={{fontSize:10,color:"#8A7060",marginBottom:3}}>{t.minSpend===0?"Desde 0":fmt(t.minSpend)+" - "+fmt(t.maxSpend>=9e8?"sin limite":t.maxSpend)}</div>
+                  <div style={{fontSize:11,color:"#C4B49A"}}>Descuento: <strong style={{color:t.color}}>{t.discount}%</strong></div>
+                  <div style={{fontSize:9,color:"#5A4030",marginTop:4}}>Ascenso automatico por gasto acumulado. Override manual disponible en ficha de cliente.</div>
+                </div>
+              );
+            })}
+            <div style={{padding:"9px",background:"rgba(255,255,255,0.02)",borderRadius:8,border:"1px solid rgba(255,255,255,0.05)",fontSize:9,color:"#5A4030"}}>
+              Para modificar los tiers y sus descuentos, edita las constantes TIERS en el codigo de GRANO.
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderConfig=function(){
+    const fields=[["name","Nombre comercial"],["legalName","Razón social"],["nif","NIF/CIF"],["address","Dirección"],["cp","CP"],["city","Ciudad"],["phone","Teléfono"],["email","Email"],["web","Web"],["ticketFooter","Pie de ticket"]];
+    return (
+      <div>
+        <div style={ST.secT}>Datos del comercio</div>
+        {fields.map(function(entry){
+          const k=entry[0], label=entry[1];
+          return (
+            <div key={k} style={{marginBottom:7}}>
+              <div style={{fontSize:8,letterSpacing:1,color:"#6A5535",textTransform:"uppercase",marginBottom:2}}>{label}</div>
+              <input value={(state.business||INIT_BIZ)[k]||""} onChange={function(e){const nb={...(state.business||INIT_BIZ),[k]:e.target.value};const ns={...state,business:nb};setState(ns);save(ns);}} style={ST.inp} />
+            </div>
+          );
+        })}
+        <div style={ST.secT}>Copia de seguridad</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+          <button onClick={exportData} style={{padding:"9px",fontSize:10,background:"rgba(201,169,110,0.08)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:7,color:"#C9A96E",cursor:"pointer",fontFamily:"inherit"}}>Exportar JSON</button>
+          <button onClick={function(){importRef.current&&importRef.current.click();}} style={{padding:"9px",fontSize:10,background:"rgba(122,158,126,0.08)",border:"1px solid rgba(122,158,126,0.2)",borderRadius:7,color:"#7A9E7E",cursor:"pointer",fontFamily:"inherit"}}>Importar JSON</button>
+        </div>
+        <input ref={importRef} type="file" accept=".json" onChange={importData} style={{display:"none"}} />
+        <div style={ST.secT}>Zona peligrosa</div>
+        <button onClick={resetGrano} style={{width:"100%",padding:"10px",fontSize:11,background:"rgba(200,40,20,0.1)",border:"1px solid rgba(200,40,20,0.3)",borderRadius:7,color:"#FF6050",cursor:"pointer",fontFamily:"inherit"}}>
+          Resetear GRANO a cero
+        </button>
+      </div>
+    );
+  };
+
+  const TABS=[["tpv","🧾","TPV"],["caja","💵","Caja"],["hist","📜","Hist"],["dash","📈","Dash"],["fact","📋","Fact"],["stock","📦","Stock"],["fin","📊","P&L"],["crm","👥","CRM"],["chat","💬","Chat"],["config","[Cfg]","Cfg"]];
+  const finTabList=[["pl","P&L"],["activos","Activos"],["prestamos","Deuda"],["valor","Valor"],["informes","Informes"]];
+
+  return (
+    <div style={ST.root}>
+      <style>{"@keyframes dot{0%,80%,100%{opacity:.2;transform:scale(.8)}40%{opacity:1;transform:scale(1)}} ::-webkit-scrollbar{width:2px} ::-webkit-scrollbar-thumb{background:rgba(201,169,110,0.2);border-radius:3px}"}</style>
+      <div style={ST.hdr}>
+        <div style={{display:"flex",alignItems:"center",gap:7}}>
+          <div style={{width:26,height:26,background:"linear-gradient(135deg,#C9A96E,#7A5530)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>☕</div>
+          <div style={{fontSize:15,letterSpacing:3,color:"#C9A96E",fontStyle:"italic"}}>GRANO</div>
+        </div>
+        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          {saveStatus==="saved"&&<span style={{fontSize:8,color:"#7A9E7E"}}>v</span>}
+          <button onClick={exportData} title="Exportar JSON" style={{width:28,height:28,background:"rgba(201,169,110,0.08)",border:"1px solid rgba(201,169,110,0.2)",borderRadius:6,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>💾</button>
+          <div style={{padding:"2px 8px",background:"rgba(201,169,110,0.07)",border:"1px solid rgba(201,169,110,0.15)",borderRadius:12,textAlign:"center"}}>
+            <div style={{fontSize:11,color:netColor,fontWeight:"bold"}}>{fmt(fin.netIncome)}</div>
+            <div style={{fontSize:7,color:"#5A4030",letterSpacing:1,textTransform:"uppercase"}}>Neto</div>
+          </div>
+          <div style={{padding:"2px 8px",background:"rgba(201,169,110,0.07)",border:"1px solid rgba(201,169,110,0.15)",borderRadius:12,textAlign:"center"}}>
+            <div style={{fontSize:11,color:"#7A9E7E",fontWeight:"bold"}}>{fmt(fin.todaySales)}</div>
+            <div style={{fontSize:7,color:"#5A4030",letterSpacing:1,textTransform:"uppercase"}}>Hoy</div>
+          </div>
+        </div>
+      </div>
+      <div style={ST.main}>
+        <div style={ST.cont}>
+          {tab==="tpv"&&renderTPV()}
+          {tab==="caja"&&<div style={ST.cont}>{renderCaja()}</div>}
+          {tab==="hist"&&<div style={ST.cont}>{renderHistorial()}</div>}
+          {tab==="dash"&&<div style={ST.cont}>{renderDash()}</div>}
+          {tab==="fact"&&<div style={ST.cont}>{renderFacturas()}</div>}
+          {tab==="stock"&&<div style={ST.cont}>{renderStock()}</div>}
+          {tab==="crm"&&<div style={ST.cont}>{renderCRM()}</div>}
+          {tab==="fin"&&(
+            <div style={ST.panel}>
+              <div style={{display:"flex",marginBottom:8,borderRadius:6,overflow:"hidden",border:"1px solid rgba(201,169,110,0.15)"}}>
+                {finTabList.map(function(entry){
+                  return <button key={entry[0]} style={{flex:1,padding:"7px 0",fontSize:9,letterSpacing:1,textTransform:"uppercase",textAlign:"center",cursor:"pointer",color:finTab===entry[0]?"#130E07":"#5A4020",background:finTab===entry[0]?"#C9A96E":"transparent",border:"none",fontFamily:"inherit"}} onClick={function(){setFinTab(entry[0]);}}>{entry[1]}</button>;
+                })}
+              </div>
+              {renderFin()}
+            </div>
+          )}
+          {tab==="chat"&&renderChat()}
+          {tab==="config"&&<div style={ST.panel}>{renderConfig()}</div>}
+        </div>
+        <div style={ST.bnav}>
+          {TABS.map(function(entry){
+            const k=entry[0], icon=entry[1], label=entry[2];
+            return (
+              <button key={k} style={ST.nb(tab===k)} onClick={function(){setTab(k);}}>
+                <span style={{fontSize:16,lineHeight:1,opacity:tab===k?1:0.35}}>{icon}</span>
+                <span style={{fontSize:7,color:tab===k?"#C9A96E":"#4A3820",letterSpacing:0.5,textTransform:"uppercase",marginTop:1}}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(GranoApp));
+  </script>
+  <script>
+    if ("serviceWorker" in navigator && location.hostname === "cery17.github.io") {
+      window.addEventListener("load", function() {
+        navigator.serviceWorker.register("/Grano/sw.js")
+          .then(function(reg) { console.log("GRANO SW registrado:", reg.scope); })
+          .catch(function(err) { console.log("SW error:", err); });
+      });
+    }
+  </script>
+</body>
+</html>
