@@ -1,0 +1,1458 @@
+{
+  "inventory": [
+    {
+      "almacen": "tostador",
+      "id": "inv_1776427353917_3qg",
+      "name": "Cafe verde Costa Rica",
+      "quantity": 60,
+      "unit": "kg",
+      "unitCost": 12,
+      "category": "cafe_verde",
+      "minStock": 5,
+      "supplier": "Copeagri"
+    },
+    {
+      "almacen": "tostador",
+      "id": "inv_1776427438649_ngk",
+      "name": "Cafe Verde Chiang Rai",
+      "quantity": 39.6,
+      "unit": "kg",
+      "unitCost": 12.1,
+      "category": "cafe_verde",
+      "minStock": 10,
+      "supplier": "Panabok Coffee"
+    },
+    {
+      "almacen": "tostador",
+      "id": "inv_1776427585656_say",
+      "name": "Cafe Verde Benguet",
+      "quantity": 25,
+      "unit": "kg",
+      "unitCost": 29,
+      "category": "cafe_verde",
+      "minStock": 5,
+      "supplier": "Cups of Cordillera"
+    },
+    {
+      "almacen": "tostador",
+      "id": "inv_1776427663053_bya",
+      "name": "Robusta Nan",
+      "quantity": 9,
+      "unit": "kg",
+      "unitCost": 11,
+      "category": "cafe_verde",
+      "minStock": 1,
+      "supplier": "Pirom"
+    },
+    {
+      "almacen": "tostador",
+      "id": "inv_1776427706800_f7b",
+      "name": "Cafe verde Colombia",
+      "quantity": 0.5,
+      "unit": "kg",
+      "unitCost": 14.5,
+      "category": "cafe_verde",
+      "minStock": 1,
+      "supplier": "El Alquimista"
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776427869258_nzx",
+      "name": "Cafe tostado Yunnan",
+      "quantity": 18,
+      "unit": "ud",
+      "unitCost": 6.75,
+      "category": "cafe_tostado",
+      "minStock": 1,
+      "supplier": "Shu From Yunnan"
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776427966846_1q7",
+      "name": "Bolsas pequeñas",
+      "quantity": 212,
+      "unit": "ud",
+      "unitCost": 0.58,
+      "category": "envases",
+      "minStock": 50,
+      "supplier": "Stickermule"
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776428018535_i8f",
+      "name": "Pegatinas DripRoots ",
+      "quantity": 0,
+      "unit": "kg",
+      "unitCost": 0.5,
+      "category": "cafe_verde",
+      "minStock": 10,
+      "supplier": "Scanleon"
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776428182126_x10",
+      "name": "Pegatinas DripRoots",
+      "quantity": 100,
+      "unit": "ud",
+      "unitCost": 0.5,
+      "category": "envases",
+      "minStock": 10,
+      "supplier": "Scanleon"
+    },
+    {
+      "id": "tostado_inv_1776427706800_f7b",
+      "name": "Cafe tostado Colombia",
+      "quantity": 0.5,
+      "unit": "kg",
+      "unitCost": 16.55,
+      "category": "cafe_tostado",
+      "almacen": "tostador",
+      "minStock": 1
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776587847377_4pe",
+      "name": "Cafe tostado etiopia 125g",
+      "quantity": 5,
+      "unit": "ud",
+      "unitCost": 3.9,
+      "category": "cafe_tostado",
+      "minStock": 1,
+      "supplier": "Tostador"
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776587951346_qnk",
+      "name": "Café Peru 125g",
+      "quantity": 3,
+      "unit": "ud",
+      "unitCost": 3.6,
+      "category": "cafe_verde",
+      "minStock": 1,
+      "supplier": "Tostador "
+    },
+    {
+      "almacen": "takeaway",
+      "id": "inv_1776669408244_bg5",
+      "name": "Cafe tostado Yunnan",
+      "quantity": 2,
+      "unit": "ud",
+      "unitCost": 6.75,
+      "category": "cafe_tostado",
+      "minStock": 1,
+      "supplier": "Shu From Yunnan"
+    },
+    {
+      "almacen": "tienda",
+      "id": "inv_1776669641054_n6y",
+      "name": "Cafe tostado colombia",
+      "quantity": 7,
+      "unit": "ud",
+      "unitCost": 2.66,
+      "category": "cafe_tostado",
+      "minStock": 1,
+      "supplier": "Tostador"
+    },
+    {
+      "id": "inv_1777107256258_r5b",
+      "name": "Cafe tostado Colombia",
+      "quantity": 0,
+      "unit": "kg",
+      "unitCost": 16.55,
+      "category": "cafe_tostado",
+      "almacen": "tienda",
+      "minStock": 1
+    },
+    {
+      "id": "tostado_inv_1776427438649_ngk",
+      "name": "Cafe tostado Chiang Rai",
+      "quantity": 0.34800000000000003,
+      "unit": "kg",
+      "unitCost": 14.24,
+      "category": "cafe_tostado",
+      "almacen": "tostador",
+      "minStock": 10
+    }
+  ],
+  "transactions": [
+    {
+      "id": "txn_1776331505020_bkb",
+      "date": "2026-04-16",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1,
+      "description": "Ticket #000001"
+    },
+    {
+      "id": "txn_1776414600286_023",
+      "date": "2026-04-17",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1,
+      "description": "Ticket #000002"
+    },
+    {
+      "id": "txn_1776427353917_961",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 720,
+      "description": "Compra: Cafe verde Costa Rica"
+    },
+    {
+      "id": "txn_1776427438650_06o",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 484,
+      "description": "Compra: Cafe Verde Chiang Rai"
+    },
+    {
+      "id": "txn_1776427585656_pu6",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 725,
+      "description": "Compra: Cafe Verde Benguet"
+    },
+    {
+      "id": "txn_1776427663053_ti0",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 99,
+      "description": "Compra: Robusta Nan"
+    },
+    {
+      "id": "txn_1776427706800_qwt",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 21.75,
+      "description": "Compra: Cafe verde Colombia"
+    },
+    {
+      "id": "txn_1776427869258_qsu",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 135,
+      "description": "Compra: Cafe tostado Yunnan"
+    },
+    {
+      "id": "txn_1776427966847_xq2",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 124.7,
+      "description": "Compra: Bolsas pequeñas"
+    },
+    {
+      "id": "txn_1776428018535_zpu",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 50,
+      "description": "Compra: Pegatinas DripRoots "
+    },
+    {
+      "id": "txn_1776428182127_dwp",
+      "date": "2026-04-17",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 50,
+      "description": "Compra: Pegatinas DripRoots"
+    },
+    {
+      "id": "txn_1776444198927_c2e",
+      "date": "2026-04-17",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 42,
+      "description": "Ticket #000003"
+    },
+    {
+      "id": "txn_1776449271575_gmi",
+      "date": "2026-04-17",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 2,
+      "description": "Ticket #000004"
+    },
+    {
+      "id": "txn_1776451587686_1wj",
+      "date": "2026-04-17",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 45,
+      "description": "Cierre de caja - 3 tickets"
+    },
+    {
+      "id": "txn_1776587847377_0sb",
+      "date": "2026-04-19",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 19.5,
+      "description": "Compra: Cafe tostado etiopia 125g"
+    },
+    {
+      "id": "txn_1776587951346_uen",
+      "date": "2026-04-19",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 10.8,
+      "description": "Compra: Café Peru 125g"
+    },
+    {
+      "id": "txn_1776596119435_41o",
+      "date": "2026-04-19",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 0.6,
+      "description": "Ticket #000005"
+    },
+    {
+      "id": "txn_1776599020097_qh3",
+      "date": "2026-04-19",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 0.6,
+      "description": "Cierre de caja - 1 tickets"
+    },
+    {
+      "id": "txn_1776669641055_for",
+      "date": "2026-04-20",
+      "type": "gasto",
+      "category": "compra_insumos",
+      "amount": 10.64,
+      "description": "Compra: Cafe tostado colombia"
+    },
+    {
+      "id": "txn_1776675593617_r9c",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 2.5,
+      "description": "Ticket #000006"
+    },
+    {
+      "id": "txn_1776676219367_9vq",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1.2,
+      "description": "Ticket #000007"
+    },
+    {
+      "id": "txn_1776676601837_ql3",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1,
+      "description": "Ticket #000008"
+    },
+    {
+      "id": "txn_1776677986293_els",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 2.4,
+      "description": "Ticket #000009"
+    },
+    {
+      "id": "txn_1776678747889_wqu",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1,
+      "description": "Ticket #000010"
+    },
+    {
+      "id": "txn_1776679146441_5i6",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1.5,
+      "description": "Ticket #000011"
+    },
+    {
+      "id": "txn_1776682919357_1ax",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 2,
+      "description": "Ticket #000012"
+    },
+    {
+      "id": "txn_1776703542408_xxv",
+      "date": "2026-04-20",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 11.6,
+      "description": "Cierre de caja - 7 tickets"
+    },
+    {
+      "id": "txn_1776767226312_kxr",
+      "date": "2026-04-21",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 6,
+      "description": "Ticket #000013"
+    },
+    {
+      "id": "txn_1776781697931_jk9",
+      "date": "2026-04-21",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 12,
+      "description": "Ticket #000014"
+    },
+    {
+      "id": "txn_1776783865088_7v4",
+      "date": "2026-04-21",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 2.1,
+      "description": "Ticket #000015"
+    },
+    {
+      "id": "txn_1776788862323_nva",
+      "date": "2026-04-21",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 20.1,
+      "description": "Cierre de caja - 3 tickets"
+    },
+    {
+      "id": "txn_1776846244198_7sb",
+      "date": "2026-04-22",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 6,
+      "description": "Ticket #000016"
+    },
+    {
+      "id": "txn_1776848406558_o0v",
+      "date": "2026-04-22",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1.5,
+      "description": "Ticket #000017"
+    },
+    {
+      "id": "txn_1776876120228_9wx",
+      "date": "2026-04-22",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 7.5,
+      "description": "Cierre de caja - 2 tickets"
+    },
+    {
+      "id": "txn_1777023142227_93x",
+      "date": "2026-04-24",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 14,
+      "description": "Ticket #000018"
+    },
+    {
+      "id": "txn_1777028175322_zru",
+      "date": "2026-04-24",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 6,
+      "description": "Ticket #000019"
+    },
+    {
+      "id": "txn_1777049970238_5r3",
+      "date": "2026-04-24",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 20,
+      "description": "Cierre de caja - 2 tickets"
+    },
+    {
+      "id": "txn_1777104434942_khu",
+      "date": "2026-04-25",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 1.5,
+      "description": "Ticket #000020"
+    },
+    {
+      "id": "txn_1777190246552_pvu",
+      "date": "2026-04-26",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 0,
+      "description": "Cierre de caja - 0 tickets"
+    },
+    {
+      "id": "txn_1777190276949_ya6",
+      "date": "2026-04-26",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 6,
+      "description": "Ticket #000021"
+    },
+    {
+      "id": "txn_1777212200582_mll",
+      "date": "2026-04-26",
+      "type": "ingreso",
+      "category": "venta_take_away",
+      "amount": 6,
+      "description": "Cierre de caja - 1 tickets"
+    }
+  ],
+  "assets": [],
+  "loans": [],
+  "tickets": [
+    {
+      "id": "tkt_1776331505020_eoa",
+      "number": 1,
+      "date": "2026-04-16T09:25:05.020Z",
+      "items": [
+        {
+          "id": "fc_1776331496279_1w4",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.0909090909090908,
+            "vat": 0.10909090909090913,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.0909090909090908,
+        "totalVat": 0.10909090909090913,
+        "total": 1,
+        "discount": 0.2,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776414600285_net",
+      "number": 2,
+      "date": "2026-04-17T08:30:00.285Z",
+      "items": [
+        {
+          "id": "fc_1776414584627_1m2",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.0909090909090908,
+            "vat": 0.10909090909090913,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.0909090909090908,
+        "totalVat": 0.10909090909090913,
+        "total": 1,
+        "discount": 0.2,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776444198927_k5r",
+      "number": 3,
+      "date": "2026-04-17T16:43:18.927Z",
+      "items": [
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 7,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "superreducido": {
+            "base": 40.38461538461538,
+            "vat": 1.6153846153846203,
+            "pct": 4
+          }
+        },
+        "totalBase": 40.38461538461538,
+        "totalVat": 1.6153846153846203,
+        "total": 42,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776449271575_glh",
+      "number": 4,
+      "date": "2026-04-17T18:07:51.575Z",
+      "items": [
+        {
+          "id": "fc_1776449258257_d66",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 2,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 2.1818181818181817,
+            "vat": 0.21818181818181825,
+            "pct": 10
+          }
+        },
+        "totalBase": 2.1818181818181817,
+        "totalVat": 0.21818181818181825,
+        "total": 2,
+        "discount": 0.4,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776596119434_1yf",
+      "number": 5,
+      "date": "2026-04-19T10:55:19.435Z",
+      "items": [
+        {
+          "id": "test_a",
+          "desc": "Articulo prueba",
+          "unitPrice": 0,
+          "qty": 1,
+          "vatType": "reducido"
+        },
+        {
+          "id": "cookie",
+          "desc": "Cookie casera",
+          "unitPrice": 0.6,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 0.5454545454545454,
+            "vat": 0.054545454545454564,
+            "pct": 10
+          }
+        },
+        "totalBase": 0.5454545454545454,
+        "totalVat": 0.054545454545454564,
+        "total": 0.6,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776675593617_bz7",
+      "number": 6,
+      "date": "2026-04-20T08:59:53.617Z",
+      "items": [
+        {
+          "id": "fc_1776675579169_crc",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 1,
+          "vatType": "reducido"
+        },
+        {
+          "id": "fc_1776675579576_y6k",
+          "desc": "Espresso especialidad",
+          "unitPrice": 1.5,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 2.454545454545454,
+            "vat": 0.2454545454545456,
+            "pct": 10
+          }
+        },
+        "totalBase": 2.454545454545454,
+        "totalVat": 0.2454545454545456,
+        "total": 2.5,
+        "discount": 0.2,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776676219367_be4",
+      "number": 7,
+      "date": "2026-04-20T09:10:19.367Z",
+      "items": [
+        {
+          "id": "cookie",
+          "desc": "Cookie casera",
+          "unitPrice": 0.6,
+          "qty": 2,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.0909090909090908,
+            "vat": 0.10909090909090913,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.0909090909090908,
+        "totalVat": 0.10909090909090913,
+        "total": 1.2,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776676601837_gep",
+      "number": 8,
+      "date": "2026-04-20T09:16:41.837Z",
+      "items": [
+        {
+          "id": "fc_1776676589435_zy6",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.0909090909090908,
+            "vat": 0.10909090909090913,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.0909090909090908,
+        "totalVat": 0.10909090909090913,
+        "total": 1,
+        "discount": 0.2,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776677986293_i1i",
+      "number": 9,
+      "date": "2026-04-20T09:39:46.293Z",
+      "items": [
+        {
+          "id": "fc_1776677983267_p51",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 2,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 2.1818181818181817,
+            "vat": 0.21818181818181825,
+            "pct": 10
+          }
+        },
+        "totalBase": 2.1818181818181817,
+        "totalVat": 0.21818181818181825,
+        "total": 2.4,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776678747889_qie",
+      "number": 10,
+      "date": "2026-04-20T09:52:27.889Z",
+      "items": [
+        {
+          "id": "fc_1776678736936_o5g",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "tarjeta",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.0909090909090908,
+            "vat": 0.10909090909090913,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.0909090909090908,
+        "totalVat": 0.10909090909090913,
+        "total": 1,
+        "discount": 0.2,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776679146441_do7",
+      "number": 11,
+      "date": "2026-04-20T09:59:06.441Z",
+      "items": [
+        {
+          "id": "fc_1776679142164_g91",
+          "desc": "Espresso especialidad",
+          "unitPrice": 1.5,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.3636363636363635,
+            "vat": 0.13636363636363646,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.3636363636363635,
+        "totalVat": 0.13636363636363646,
+        "total": 1.5,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776682919357_2k3",
+      "number": 12,
+      "date": "2026-04-20T11:01:59.357Z",
+      "items": [
+        {
+          "id": "fc_1776682901430_qb5",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 2,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 2.1818181818181817,
+            "vat": 0.21818181818181825,
+            "pct": 10
+          }
+        },
+        "totalBase": 2.1818181818181817,
+        "totalVat": 0.21818181818181825,
+        "total": 2,
+        "discount": 0.4,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1776767226312_p5l",
+      "number": 13,
+      "date": "2026-04-21T10:27:06.312Z",
+      "items": [
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 1,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "superreducido": {
+            "base": 5.769230769230769,
+            "vat": 0.23076923076923084,
+            "pct": 4
+          }
+        },
+        "totalBase": 5.769230769230769,
+        "totalVat": 0.23076923076923084,
+        "total": 6,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776781697931_dig",
+      "number": 14,
+      "date": "2026-04-21T14:28:17.931Z",
+      "items": [
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 2,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "superreducido": {
+            "base": 11.538461538461538,
+            "vat": 0.4615384615384617,
+            "pct": 4
+          }
+        },
+        "totalBase": 11.538461538461538,
+        "totalVat": 0.4615384615384617,
+        "total": 12,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776783865088_hyz",
+      "number": 15,
+      "date": "2026-04-21T15:04:25.088Z",
+      "items": [
+        {
+          "id": "fc_1776783848307_poy",
+          "desc": "Espresso especialidad",
+          "unitPrice": 1.5,
+          "qty": 1,
+          "vatType": "reducido"
+        },
+        {
+          "id": "cookie",
+          "desc": "Cookie casera",
+          "unitPrice": 0.6,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.909090909090909,
+            "vat": 0.19090909090909103,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.909090909090909,
+        "totalVat": 0.19090909090909103,
+        "total": 2.1,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776846244198_3or",
+      "number": 16,
+      "date": "2026-04-22T08:24:04.198Z",
+      "items": [
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 1,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "superreducido": {
+            "base": 5.769230769230769,
+            "vat": 0.23076923076923084,
+            "pct": 4
+          }
+        },
+        "totalBase": 5.769230769230769,
+        "totalVat": 0.23076923076923084,
+        "total": 6,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1776848406557_ed5",
+      "number": 17,
+      "date": "2026-04-22T09:00:06.557Z",
+      "items": [
+        {
+          "id": "fc_1776848400417_zb5",
+          "desc": "Espresso especialidad",
+          "unitPrice": 1.5,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.3636363636363635,
+            "vat": 0.13636363636363646,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.3636363636363635,
+        "totalVat": 0.13636363636363646,
+        "total": 1.5,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1777023142227_6iy",
+      "number": 18,
+      "date": "2026-04-24T09:32:22.227Z",
+      "items": [
+        {
+          "id": "fc_1777023117987_ocf",
+          "desc": "Cafe de la casa",
+          "unitPrice": 1.2,
+          "qty": 2,
+          "vatType": "reducido"
+        },
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 2,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 2.1818181818181817,
+            "vat": 0.21818181818181825,
+            "pct": 10
+          },
+          "superreducido": {
+            "base": 11.538461538461538,
+            "vat": 0.4615384615384617,
+            "pct": 4
+          }
+        },
+        "totalBase": 13.72027972027972,
+        "totalVat": 0.6797202797202799,
+        "total": 14,
+        "discount": 0.4,
+        "discountDesc": "VECINOS -16.66667%"
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": "VECINOS"
+    },
+    {
+      "id": "tkt_1777028175322_m01",
+      "number": 19,
+      "date": "2026-04-24T10:56:15.322Z",
+      "items": [
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 1,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "superreducido": {
+            "base": 5.769230769230769,
+            "vat": 0.23076923076923084,
+            "pct": 4
+          }
+        },
+        "totalBase": 5.769230769230769,
+        "totalVat": 0.23076923076923084,
+        "total": 6,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1777104434942_p5g",
+      "number": 20,
+      "date": "2026-04-25T08:07:14.942Z",
+      "items": [
+        {
+          "id": "fc_1777104427029_cs3",
+          "desc": "Espresso especialidad",
+          "unitPrice": 1.5,
+          "qty": 1,
+          "vatType": "reducido"
+        }
+      ],
+      "paymentMethod": "efectivo",
+      "totals": {
+        "byVat": {
+          "reducido": {
+            "base": 1.3636363636363635,
+            "vat": 0.13636363636363646,
+            "pct": 10
+          }
+        },
+        "totalBase": 1.3636363636363635,
+        "totalVat": 0.13636363636363646,
+        "total": 1.5,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    },
+    {
+      "id": "tkt_1777190276949_lcv",
+      "number": 21,
+      "date": "2026-04-26T07:57:56.949Z",
+      "items": [
+        {
+          "id": "b125",
+          "desc": "Bolsa cafe 125g",
+          "unitPrice": 6,
+          "qty": 1,
+          "vatType": "superreducido"
+        }
+      ],
+      "paymentMethod": "tarjeta",
+      "totals": {
+        "byVat": {
+          "superreducido": {
+            "base": 5.769230769230769,
+            "vat": 0.23076923076923084,
+            "pct": 4
+          }
+        },
+        "totalBase": 5.769230769230769,
+        "totalVat": 0.23076923076923084,
+        "total": 6,
+        "discount": 0,
+        "discountDesc": ""
+      },
+      "clientId": null,
+      "clientName": "",
+      "couponCode": ""
+    }
+  ],
+  "ticketCounter": 22,
+  "business": {
+    "name": "1:16 Coffee",
+    "legalName": "Mario Ruiz",
+    "nif": "71451171S",
+    "address": "Gran Via de San Marcos 24",
+    "city": "Leon",
+    "cp": "24001",
+    "phone": "665994249",
+    "email": "",
+    "web": "",
+    "ticketFooter": "Tu café de todos los dias, ahora de especialidad.",
+    "facturaCounter": 1
+  },
+  "facturas": [],
+  "transfers": [
+    {
+      "id": "tr_1776669408245_alh",
+      "date": "2026-04-20T07:16:48.245Z",
+      "from": "tienda",
+      "to": "takeaway",
+      "itemId": "inv_1776427869258_nzx",
+      "itemName": "Cafe tostado Yunnan",
+      "qty": 1,
+      "unit": "ud",
+      "reason": "Cargar molino espresso "
+    },
+    {
+      "id": "tr_1777107256258_ul1",
+      "date": "2026-04-25T08:54:16.258Z",
+      "from": "tostador",
+      "to": "tienda",
+      "itemId": "tostado_inv_1776427706800_f7b",
+      "itemName": "Cafe tostado Colombia",
+      "qty": 0.125,
+      "unit": "kg",
+      "reason": "Reposicion tienda"
+    },
+    {
+      "id": "tr_1777107451857_bki",
+      "date": "2026-04-25T08:57:31.857Z",
+      "from": "tostador",
+      "to": "tienda",
+      "itemId": "tostado_inv_1776427706800_f7b",
+      "itemName": "Cafe tostado Colombia",
+      "qty": 0.248,
+      "unit": "kg",
+      "reason": "Reposicion"
+    },
+    {
+      "id": "tr_1777111517715_k47",
+      "date": "2026-04-25T10:05:17.715Z",
+      "from": "tienda",
+      "to": "takeaway",
+      "itemId": "inv_1776427869258_nzx",
+      "itemName": "Cafe tostado Yunnan",
+      "qty": 1,
+      "unit": "ud",
+      "reason": "Reposicion take away."
+    }
+  ],
+  "roasts": [
+    {
+      "id": "r_1776548443594_vnz",
+      "date": "2026-04-18T21:40:43.595Z",
+      "verdeId": "inv_1776427706800_f7b",
+      "verdeName": "Cafe verde Colombia",
+      "qtyVerde": 0.5,
+      "qtyTostado": 0.438,
+      "merma": 12.4,
+      "notes": "Aillio P:8->9 F:3 D:6. Medium 212°@~9:30"
+    },
+    {
+      "id": "r_1777107127596_fst",
+      "date": "2026-04-25T08:52:07.596Z",
+      "verdeId": "inv_1776427706800_f7b",
+      "verdeName": "Cafe verde Colombia",
+      "qtyVerde": 0.5,
+      "qtyTostado": 0.435,
+      "merma": 13,
+      "notes": "Receta segun libro"
+    },
+    {
+      "id": "r_1777107660076_qws",
+      "date": "2026-04-25T09:01:00.076Z",
+      "verdeId": "inv_1776427438649_ngk",
+      "verdeName": "Cafe Verde Chiang Rai",
+      "qtyVerde": 0.1,
+      "qtyTostado": 0.085,
+      "merma": 15,
+      "notes": "Tueste de prueba segun receta libro"
+    },
+    {
+      "id": "r_1777107882622_3nj",
+      "date": "2026-04-25T09:04:42.622Z",
+      "verdeId": "inv_1776427438649_ngk",
+      "verdeName": "Cafe Verde Chiang Rai",
+      "qtyVerde": 0.3,
+      "qtyTostado": 0.263,
+      "merma": 12.3,
+      "notes": "Consultar libro (standar hasta 174°/5'. Luego P:9 F:3 hasta 200°/7'. Luego P1 hasta final 210°/8')"
+    }
+  ],
+  "caja": {
+    "abierta": false,
+    "apertura": "2026-04-26T07:57:34.183Z",
+    "fondoInicial": 175,
+    "cierre": {
+      "fecha": "2026-04-26T14:03:20.583Z",
+      "efectivo": 0,
+      "tarjeta": 6,
+      "bizum": 0,
+      "total": 6,
+      "tickets": 1
+    }
+  },
+  "clients": [],
+  "coupons": [
+    {
+      "usedCount": 8,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "VECINOS",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "id": "cup_1776331485175_wke"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "4W42B",
+      "description": "1€ x 1año",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "expiresAt": "2027-04-30",
+      "id": "cup_1776418104500_t9q"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "4X8HE",
+      "description": "1€ x 1 año",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "expiresAt": "2027-04-30",
+      "id": "cup_1776418215554_o9w"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "5904A",
+      "description": "1€ x 1 año",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "expiresAt": "2027-04-30",
+      "id": "cup_1776418320449_u0l"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "5ITB2",
+      "description": "1€ x 1 año",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "expiresAt": "2027-04-30",
+      "id": "cup_1776418367746_pgt"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "5RDEH",
+      "description": "1€ x 1 año",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "expiresAt": "2027-04-30",
+      "id": "cup_1776418498024_f8z"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "percent",
+      "applyTo": "products",
+      "code": "6TK4A",
+      "description": "1€ x 1 año",
+      "value": 16.66667,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "expiresAt": "2027-04-30",
+      "id": "cup_1776421416798_khb"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "fixed",
+      "applyTo": "products",
+      "code": "6UZJ3",
+      "description": "1€ por 1 año",
+      "value": 0.2,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "id": "cup_1777024997823_bwo"
+    },
+    {
+      "usedCount": 0,
+      "active": true,
+      "type": "fixed",
+      "applyTo": "products",
+      "code": "6Y6ZK",
+      "description": "1€ por 1 año",
+      "value": 0.2,
+      "productNames": [
+        "Cafe de la casa"
+      ],
+      "id": "cup_1777025056438_sag"
+    }
+  ],
+  "exportedAt": "2026-04-26T14:03:20.610Z"
+}
